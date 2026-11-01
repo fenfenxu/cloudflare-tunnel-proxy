@@ -4,9 +4,9 @@ description: >-
   When the user wants to set up, diagnose (doctor/health), or monitor a personal
   Cloudflare Tunnel + Access TCP proxy—including colloquial asks about 翻墙, 梯子,
   代理, 隧道, CF, Cloudflare, Cloudflare梯子, Cloudflare翻墙代理, or a broken Clash CF
-  node: route to Setup (A–H: curl 204 → ask Clash with backup → browser verify →
-  then offer keepalive/Monitor), Doctor (I), or Monitor (J). Not for
-  trycloudflare-only or domain-less paths.
+  node: route to Setup (A–H: curl 204 → ask Clash with backup+API gate → browser
+  verify → then offer keepalive/Monitor with env detect), Doctor (I), or Monitor
+  (J). Not for trycloudflare-only or domain-less paths.
 ---
 # Cloudflare Tunnel Proxy
 
@@ -65,7 +65,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 |------|----------------|------|
 | **Setup** | 搭梯子 / 翻墙 / 装代理 / Cloudflare 隧道 / 从零 setup | A–H；curl 204 → 问 Clash（先备份）→ 谷歌验证 → **最后**再问 Monitor |
 | **Doctor** | 挂了 / 不通 / 诊断 / doctor / health / healthy / 还通不通 | I，分层诊断与修复；不要从头重装 |
-| **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，优先 cron/保活脚本；例程仅 OTP 等兜底 |
+| **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，先 J0 环境检测；优先常驻/systemd/cron 脚本；例程仅 OTP 等兜底 |
 
 不确定时：已有链路且在抱怨不通 → **Doctor**；否则 → **Setup**。
 
@@ -76,7 +76,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 | 层 | 要求 | 助手动作 |
 |----|------|----------|
-| Access OTP | 用用户**个人邮箱** Allow + One-time PIN；会话常约 **24h**，过期要用户重新 OTP | 过期只引导重新登录；**不要**假装能无交互续 OTP；不要把「要重新验证」说成翻墙机器挂了 |
+| Access OTP | 用用户**个人邮箱** Allow + One-time PIN；面板默认约 **24h**，Setup **引导配成 7 天**（`168h`；最长约一个月/`720h`），过期仍要用户重新 OTP | E5 必配 Session Duration（建议同步拉长 Global）；过期只引导重新登录；**不要**假装能无交互续 OTP；不要把「要重新验证」说成翻墙机器挂了 |
 | 只绑回环 | 翻墙机器 CONNECT **仅** `127.0.0.1:<PORT>` | 启动后确认监听地址；发现 `0.0.0.0` → 立刻停掉并改回环 |
 | CONNECT Basic auth | 必须有随机强密码的 `proxy.auth` | 用 `openssl rand` 生成；**禁止**无密码/弱密码/文档示例串 |
 | 不暴露公网端口 | 不开放防火墙/安全组；不用 trycloudflare 当生产入口 | 见 F / Setup 硬禁止 |
@@ -121,7 +121,7 @@ flowchart LR
 2. 注册/登录 Cloudflare（免费）  
 3. 助手选一个便宜域名 → 你支付宝/微信付款 → NS 指到 CF  
 4. 翻墙机器起本地代理 → 开隧道 + Access 门禁 → 你的电脑装 `cloudflared access tcp` 并用 curl 验证 204  
-5. **主动问**是否要把这条链路加成 Clash / Clash Verge 节点（先备份再改；不要默认跳过）  
+5. **先检测**是否已装 Clash 类客户端（未装则推荐官方下载）；再问是否加成 Clash 节点（先备份再改；不要默认跳过）  
 6. **人工浏览器验证**：在已选该节点的前提下打开谷歌（搜本 skill / 仓库），你确认页面能打开  
 7. **最后**再问是否加保活 / Monitor 例程  
 
@@ -231,12 +231,19 @@ chmod 600 proxy.auth
 
 面板：Zero Trust / Networks → Tunnels → Published application。
 
-### E5. Access：应用 + 邮箱 OTP
+### E5. Access：应用 + 邮箱 OTP + Session Duration（必配）
 
-1. https://one.dash.cloudflare.com/ → Zero Trust  
-2. Access → Applications → 保护 `cf-tunnel-proxy.<domain>`  
-3. Policy：Allow → 用户**个人邮箱**  
-4. 启用 One-time PIN；会话过期后需重新 OTP  
+1. https://one.dash.cloudflare.com/ → **Access controls** → **Applications**  
+2. 保护 `cf-tunnel-proxy.<domain>`（新建或打开已有应用 → **Configure**）  
+3. Policy：Allow → 用户**个人邮箱**；启用 One-time PIN  
+4. **Session Duration（必做，勿留默认 24h 不提醒）：**  
+   - 应用页 **Session Duration** 下拉选更长会话；**本 skill 默认引导：7 天**（API 字段 `session_duration`: `168h`）  
+   - 可选更长至约一个月（`720h` / 文档「one month」）；**没有永久会话**  
+   - **建议同步** Access controls → **Access settings** → **Set your global session duration**：Global **≥** Application（同为 7 天或更长），避免 App 已拉长但 Global 仍 24h、浏览器/CLI 仍天天 OTP  
+   - 策略级 Policy Session 可覆盖应用默认；个人单策略场景通常改应用层即可  
+5. 对用户说明：拉长只降低 OTP 频率；**过期后仍需**浏览器 / `cloudflared access login` 重新验证，Monitor **不能**自动续 OTP  
+
+面板路径摘要（可原话告诉用户）：[Cloudflare One](https://one.dash.cloudflare.com/) → Access controls → Applications → 该应用 → Configure → Session Duration；Global 在 Access settings。
 
 ### E6. 你的电脑：cloudflared access tcp + 技术探测（curl 204）
 
@@ -275,36 +282,81 @@ curl 得到 204 之后：先写 `site.env`（E7），再**必须**进入 E8 询�
 
 写完 site.env 后进入 **E8**（问 Clash）。**不要**在这里问 Monitor。
 
-### E8. 询问是否配置 Clash（必问）→ 先备份再改
+### E8. 询问是否配置 Clash（必问）→ 先检测安装 → 再备份再改
 
-access tcp 已起、curl `generate_204`→204、且 site.env 已写之后，助手**必须用一两句话 + 明确选项问用户**：
+access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
+
+#### E8-0. 先检测你的电脑是否已装 Clash 类客户端（必做；禁止静默跳过）
+
+在**你的电脑**上探测（按实机调整；至少覆盖常见路径）：
+
+- macOS：`/Applications/Clash Verge.app`、`ClashX.app`、`Clash Meta.app` 等；进程名含 `Clash Verge` / `clash-verge` / `verge-mihomo` / `mihomo` / `ClashX`
+- Windows：开始菜单/安装目录是否有 Clash Verge / clash-verge / mihomo
+- 通用：`pgrep`/`tasklist` 见相关进程，或 Verge 配置目录存在（如 macOS `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/`）
+
+**已装** → 进入下面的询问与 E8a–E8d（改配置路径）。
+
+**未装** → **不要**假装已跳过 Clash、也不要假装能替用户配任意客户端。必须：
+
+1. 明确告诉用户：本 skill 的图形客户端路径**以 Clash Verge（Rev）/ mihomo 同类为主**；建议先安装再继续 E8。  
+2. **推荐下载（只用下列出处，勿臆造第三方站）：**  
+   - 首选：**Clash Verge Rev** 官方仓库 Releases：https://github.com/clash-verge-rev/clash-verge-rev/releases  
+   - 仓库页：https://github.com/clash-verge-rev/clash-verge-rev  
+   - 按系统选包：macOS Apple Silicon → `*aarch64.dmg`；macOS Intel → `*x64.dmg`；Windows x64 → `*_x64-setup.exe`（以 Releases 页最新资产名为准，**不要**在 skill 里写死易过期的版本号直链）  
+   - 出处表：同目录 `AUTHOR_LINKS.md`「客户端下载」节  
+3. 等用户装好（或明确拒绝安装）后再问 A/B；用户说稍后再装 → 可先用 access tcp 做 **E9**，并记「Clash 未装、配置待补」。
+
+#### E8 询问（已装，或用户刚装完）
+
+助手**必须用一两句话 + 明确选项问用户**：
 
 > 要不要帮你改 Clash / Clash Verge（或 mihomo 同类）配置，把这条链路加成一个可用节点？  
-> （A）要，帮我改　（B）不要，我只用 access tcp + curl
+> （A）要，帮我改　（B）不要，我只用 access tcp + curl（或其它客户端）
 
-- **用户说不要（B）** → **跳过** Clash 编辑，仍进入 **E9 人工浏览器验证**；并说明可以只用 `cloudflared access tcp` + curl，日常也可手动设系统代理到本机 PORT。
-- **用户说要（A）** → 进入下面「备份 → 写入 → 重载」步骤；**禁止**未询问就改用户 Clash；**禁止**未备份就改 Merge/配置。
+- **用户说要（A）** → 进入下面「备份 → 写入 → 重载 → API 门禁」；**禁止**未询问就改；**禁止**未备份就改。
+- **用户说不要（B）/ 改用其它客户端或纯手工** → **跳过** Clash 编辑，仍进入 **E9**（access tcp 或用户自管代理）；并**必须**用白话说明：  
+  > 这条「非 Clash Verge / 非本 skill 已测客户端」路径**没有在本 skill 里验收过**，助手**不一定能**帮你排通；若要坚持用别的客户端，建议自己找别的 Agent 手工配，或另开一个 Agent 专门做那套客户端配置。  
+  可补充：日常仍可用 `cloudflared access tcp` + curl，或手动把系统代理指到本机 PORT。**不要**假装本 skill 覆盖所有客户端。
 
-#### E8a. 改之前必须备份
+#### E8a. 改之前必须备份（硬门禁）
 
 1. 找到 Clash Verge / Clash / mihomo 的 **Merge** 或主配置文件（常见如 Verge 的 Merge.yaml；路径因安装而异，先在用户机器上定位）。
 2. **先复制带时间戳的备份**，例如：
    ```bash
    cp Merge.yaml "Merge.yaml.bak-cf-tunnel-$(date +%Y%m%d-%H%M%S)"
    ```
-3. **在聊天里告诉用户备份完整路径**；说明若搞坏了可用该备份还原（不要静默备份不告知）。
+3. **必须在聊天明文告知**：备份**完整路径** + 一行还原命令（例：`cp "…/Merge.yaml.bak-cf-tunnel-…" "…/Merge.yaml"` 后重载）。**禁止**静默备份不告知。自检失败时默认**停手并给出还原命令**，不要擅自自动回滚（除非用户明确授权回滚）。
 
-#### E8b. 写入节点与防套娃规则
+#### E8b. 单写路径（禁止双写）
 
-写入内容至少包含（片段示例见 `templates/clash-verge-merge.snippet.yaml`）：
+1. **只改一处**：Clash Verge 场景优先只改 **全局 Merge + Script**；**或者**只改「当前 profile 的 Merge」——二者择一。  
+2. 改前先读两端：若全局或 profile **已有**本方案片段，只在**同一处**更新；**禁止**再往另一处写入同一套 `custom-proxies` / 节点（双写会导致重复代理名、校验失败、磁盘与内核不一致）。  
+3. 写入前扫描现有代理名：避免与用户已有节点**重名**；约定推荐名 `cf-tunnel-proxy`，若已占用则换不冲突的名字并写进 site.env/NOTES。  
+4. 片段示例见 `templates/clash-verge-merge.snippet.yaml`（模板头注释亦写明勿同时贴进 global 与 profile）。
 
-1. **HTTP 代理节点**：`server: 127.0.0.1`，`port` = 本地 access tcp 监听端口，Basic auth 用 `proxy.auth` 的 `USER`/`PASS`（推荐节点名如 `cf-tunnel-proxy`）
+#### E8c. 写入节点与防套娃规则
+
+写入内容至少包含：
+
+1. **HTTP 代理节点**：`server: 127.0.0.1`，`port` = 本地 access tcp 监听端口，Basic auth 用 `proxy.auth` 的 `USER`/`PASS`（推荐节点名如 `cf-tunnel-proxy`；**密码勿回显到聊天**）
 2. **PROCESS DIRECT**：进程名 `cloudflared` → DIRECT
 3. **域名 DIRECT**：`cf-tunnel-proxy.<domain>`、`*.cloudflareaccess.com`、`*.cfargotunnel.com` → DIRECT
 4. **fake-ip-filter**：同上隧道 / Access 相关域名，避免 fake-ip 污染
 5. **`tun.route-exclude-address`**：含 Cloudflare **IPv4 + IPv6**（与 **G** 节一致，至少含 `2606:4700::/32` 等常用段）
 
-改完后**引导用户重载** Clash / Clash Verge（热更新或重启），并**选中该节点**；不要静默假定已生效。然后进入 **E9**。
+改完后**引导用户重载** Clash / Clash Verge（热更新或重启），并**选中该节点**（常见组名如「节点选择」/ PROXY）。**不要**把「文件已写 / UI 提示验证成功」当成内核已加载。
+
+#### E8d. 重载后 API / 内核自检（全部通过才算 E8 完成）
+
+经 Verge/mihomo 的 **unix socket**（常见 `/tmp/verge/verge-mihomo.sock`）或 `external-controller` HTTP API（以实机为准），**全部通过**后再说「Clash 已加载该节点」；否则只说「文件已写，自检未过」，停在 E8 修，**禁止**报成功并进入 E9 装没事：
+
+1. `GET /proxies`（或等价）→ JSON 中**存在**约定节点名（如 `cf-tunnel-proxy`）；运行配置**不是**空 `proxies:`  
+2. 用于上网的 select 组（常称「节点选择」）的 `now` **已是该节点**（或引导用户选中后再测）  
+3. **不要**因 rule 模式下 `GLOBAL`=`DIRECT` **单独判失败**（规则走「节点选择」时 GLOBAL=DIRECT 可正常）  
+4. 可选技术探针：本机 `curl -x http://USER:PASS@127.0.0.1:<mixed-port> … generate_204` → 204（可与 E6 复用；**仍不能**代替 E9 浏览器确认）  
+5. API 与磁盘不一致（磁盘有大配置、API 无节点）→ **FAIL**，修到一致；可提示用户用 E8a 备份还原
+
+通过后进入 **E9**。
 
 ### E9. 人工浏览器验证（在 Monitor 之前；curl 204 不够当最终验收）
 
@@ -319,11 +371,12 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后，助�
 
 ### E10. 最后才问保活 / Monitor
 
-仅在 **E8 Clash 决策完成**（跳过或已配置）且 **E9 用户已确认浏览器翻墙可用** 之后，助手**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
+仅在 **E8 Clash 决策完成**（跳过或已配置且 **E8d API 门禁通过**）且 **E9 用户已确认浏览器翻墙可用** 之后，助手**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
 
-- 环境若是 **Grok Bot / Codex**（或其它支持日程例程、定时任务的助手）：说明可以加一条 **routine**，定期跑 **Doctor**（健康检查），发现问题按 I2 **自动修复**（假活强制重启等），修好或修不了再通知。
-- 建议默认节奏：每 **15–30 分钟** 或每小时一次 Doctor 轻检；Access OTP 过期类问题以「提醒重新登录」为主，不要假装能无交互续 OTP。
-- 用户说要 → 进入 **J. Monitor**，按环境创建例程/定时任务；用户说不要 → 仍提醒本机可用 `templates/ensure-tunnel.sh` 做进程级保活，并告知以后说「doctor / 诊断一下」可再跑 I。
+- 先按 **J0** 做环境检测，再按 **J1** 选主路径；**有 cron 不是前提**，无 cron ≠ Setup 失败。  
+- 环境若是 **Grok Bot / Codex**（或其它支持日程例程的助手）：例程只做 **OTP 提醒 + 跨机够不着的部分** 与可选 Doctor 轻检兜底；**不能**用高频 routine 代替翻墙机器上的 `ensure` / `monitor-loop`。  
+- 建议 Doctor 轻检节奏：每 **15–30 分钟**（健康时安静）；Access OTP 过期只提醒重新登录，不要假装能无交互续 OTP。  
+- 用户说要 → 进入 **J. Monitor**；用户说不要 → 仍提醒本机可用 `templates/ensure-tunnel.sh` / 常驻 loop，并告知以后说「doctor」可再跑 I。
 
 ---
 
@@ -354,9 +407,15 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后，助�
 - [ ] **禁止**助手代付；禁止默认「信用卡结账」话术——支付宝/微信、用户本人付  
 - [ ] **禁止**未获用户确认就做删隧道、弃用旧域、误杀其它隧道等破坏性操作  
 - [ ] **禁止**把隧道凭证文件权限放宽到他人可读；目标 `600`
+- [ ] **禁止**未检测你的电脑是否已装 Clash / Clash Verge / mihomo 就进入改配置；未装时禁止静默跳过，须推荐官方 Releases 下载（见 E8-0 / AUTHOR_LINKS）  
+- [ ] **禁止**在用户拒绝 Clash、改用其它客户端时假装本 skill 已验收该客户端；须声明未测、可能排不通，并建议另开 Agent  
 - [ ] **禁止**未询问用户就改 Clash / Clash Verge / mihomo 配置  
-- [ ] **禁止**未先做带时间戳备份就改 Merge / 主配置；改前须在聊天告知备份路径与还原方式  
+- [ ] **禁止**未先做带时间戳备份就改 Merge / 主配置；改前须在聊天**明文**告知备份完整路径与还原命令  
+- [ ] **禁止**同时改全局 Merge 与 profile Merge（双写同一套节点）；只写一处  
+- [ ] **禁止**在 API/内核自检未通过时声称「Clash 已加载该节点」；rule 模式下勿因 `GLOBAL=DIRECT` 误判  
+- [ ] **禁止**把密码复述进聊天（读到 `proxy.auth` 也只在本机注入配置，不回显）  
 - [ ] **禁止**在用户确认「浏览器翻墙可用」（E9）之前默认创建 Monitor / 保活例程；写 site.env 可以在 curl 204 后做，但问 Monitor 必须放在 Clash 决策 + 人工验证之后  
+- [ ] **禁止**把「有 crontab」当成 Setup/Monitor 前提；无 cron 时走 J0/J1 常驻 loop / LaunchAgent / systemd  
 
 与 **G. 已知坑** 同一套红线；G 偏排障，F2 偏 Setup 闸门。
 
@@ -372,13 +431,15 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后，助�
 | Clash 未 DIRECT `cloudflared` | access tcp 失败/极慢 / `websocket: bad handshake` |
 | Clash TUN 未排除 Cloudflare **IPv6**（仅排除了 104/172 等 IPv4） | `cloudflared` 经 utun 源地址 `fdfe:dcba:9876::1` 连 `2606:4700::` → `websocket: bad handshake`；IPv4 route-exclude 仍可能「DNS/路由看起来正常」。Merge `tun.route-exclude-address` 须含 `2606:4700::/32`（及常用 CF IPv6：`2803:f800::/32`、`2400:cb00::/32`、`2405:8100::/32`、`2405:b500::/32`、`2a06:98c0::/29`）。Doctor：`lsof -nP -p <pid>` 看出站是否走 TUN IPv6 |
 | **隧道假活（zombie）** | 本机 `ha_connections≥1`，但 Cloudflare API `status=down` / `connections=[]`；Access 报 `websocket: bad handshake`。**只看本地指标会漏**；见 I |
-| Access OTP / app token 过期 | 会话常约 24h；重新 `cloudflared access login` 或浏览器 OTP，再重启 access tcp |
+| Access OTP / app token 过期 | 默认约 24h；Setup 应已引导 7 天（最长约一个月）。过期后重新 `cloudflared access login` 或浏览器 OTP，再重启 access tcp；Monitor 不能自动续 |
 | 临时邮箱收不到注册商 OTP | 优先个人邮箱；换渠道或改邮箱 |
 | 默认信用卡结账文案 | **禁止**；支付宝/微信扫码、本人付 |
 | 列多个域名让用户选 | **禁止**；只推一个名 |
 | 引导续费原域名 | **禁止**；到期换新便宜域迁移 |
 | OpenAI / Codex 被拦 | 已知限制 |
 | 用 1.1.1.1 通不通当总开关 | **禁止** |
+| Clash 全局 Merge 与 profile Merge **双写**同一套节点 | 重复代理名 / 校验失败 / 磁盘≠内核；**只写一处**（见 E8b） |
+| 只看「验证成功」或 rule 下 `GLOBAL=DIRECT` 就下结论 | 必须以 API `proxies` 含节点且选中组 `now` 正确为准（见 E8d） |
 
 ---
 
@@ -499,23 +560,58 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 
 目标：链路持续可用；假活能被发现并自动拉起；修不了的（尤其 Access OTP）及时喊人。
 
-**优先顺序：常驻/cron 脚本 → 助手例程仅作兜底。** 不要用高频 Grok Bot routine 轮询代替 `ensure`/`doctor.sh`。
+**优先顺序：本机常驻/定时脚本 → 助手例程仅作兜底。** 不要用高频 Grok Bot routine 轮询代替 `ensure`/`doctor.sh`。**有 cron 不是前提。**
 
-### J1. 翻墙机器 / 进程级保活（始终建议，Monitor 主路径）
+### J0. 环境检测（E10 / 开 Monitor 前必做；输出 `ENV=`）
 
-- CONNECT：`templates/ensure.sh`（cron / systemd timer / 短循环）  
-- 隧道：`templates/ensure-tunnel.sh`（设 `TUNNEL_ID`；可选 `PIN_CMD` / `UP_CMD`）——**不能**只信本地 `ha_connections`：  
+先探测再选型，**不要**假定有 `crontab`：
+
+| 信号 | 含义 | 用法 |
+|------|------|------|
+| `test -d /home/box` 或 `$HOME` 为 `/home/box` | 很可能在 Grok Bot box | 倾向无 cron 保活 |
+| `command -v crontab` 失败，或 `crontab -l` 不可用 | 无 cron | **禁止**把 cron 当唯一主路径 |
+| 存在 `/home/box/agent-data/`、workflows skill 目录 | 助手托管环境 | 与 Grok Bot 同族 |
+| 可创建助手例程（UpdateRoutine / routines） | 可做 OTP/Doctor 兜底 | J2 |
+| `uname` = Darwin 且在你的电脑 | 客户端 Mac | LaunchAgent 优先于 cron |
+| Linux 且有 systemd 用户会话 | 一般 VPS/自有机 | `systemd --user` timer / `systemd-run` 优先 |
+| 已有 `monitor-loop` / ensure 常驻 | 已选无 cron 路径 | Doctor **勿**再强行装 cron |
+
+判定（简式）：
+
+```text
+if no crontab AND ( /home/box OR agent-data OR routines available ):
+  ENV=grok_bot_or_no_cron → 默认无 cron 方案
+elif Darwin client:
+  ENV=mac_client → LaunchAgent + ensure
+elif systemd available:
+  ENV=linux_host → systemd timer/user service
+else:
+  ENV=unknown → 短循环 monitor-loop + 明确告知可手动 doctor
+```
+
+### J1. 按环境的进程级保活（Monitor 主路径）
+
+| ENV | 翻墙机器进程保活 | 轻检 | OTP / 跨机 |
+|-----|------------------|------|------------|
+| **grok_bot_or_no_cron** | 常驻 `monitor-loop` 调 `ensure.sh` + `ensure-tunnel.sh`（或等价）；有 systemd 用户会话可用 `systemd-run --user` | loop 内间歇 `doctor.sh ROLE=host`；或助手 routine ≥15–30min | routine **仅** OTP 提醒 + 你的电脑够不着的部分 |
+| **linux_host** | user systemd service/timer | timer 跑 doctor | 同上 |
+| **有 cron 的传统机** | cron 调 ensure* | cron doctor | J2 |
+| **mac_client（你的电脑）** | LaunchAgent 保 `access tcp`（及可选 ensure） | 可选本地脚本；助手 routine 兜底 | OTP **一定**在这台发生 |
+
+共通：
+
+- CONNECT：`templates/ensure.sh`；隧道：`templates/ensure-tunnel.sh`（设 `TUNNEL_ID`；可选 `PIN_CMD` / `UP_CMD`）——**不能**只信本地 `ha_connections`：  
   1. 本地 ha==0 → 重启 cloudflared  
   2. 本地 ha≥1 但 CF connectors=0 → **强制重启**（假活）；只杀该 `CFG` 对应进程  
-  3. 可选：cron 再跑 `scripts/doctor.sh`；连续非 OK 再告警  
 - **勿**误杀同一主机上其它隧道  
-- Clash：安装/改 Merge 时固定写入 cloudflared DIRECT + 隧道/Access 域名 fake-ip-filter + Cloudflare **IPv4 与 IPv6** `tun.route-exclude-address`  
+- 助手 routine **不能**取代翻墙机器上的 ensure（假活仍靠本地与 CF API 交叉验证）  
+- Clash：按 E8 单写 + API 门禁；固定 cloudflared DIRECT + 隧道/Access fake-ip-filter + CF **IPv4 与 IPv6** `tun.route-exclude-address`  
 
-### J2. 助手例程（Grok Bot / Codex 等）——仅 OTP / 需人工时的 fallback
+### J2. 助手例程（Grok Bot / Codex 等）——仅 OTP / 跨机 fallback
 
 脚本能覆盖的保活与轻检（J1 + `doctor.sh`）**不要**再建密轮询例程。仅在下列情况加 routine：
 
-1. Access OTP / token 过期需人点登录  
+1. Access OTP / token 过期需人点登录（可先在 E5 拉长到 7 天降低频率，**仍不能**自动续 OTP）  
 2. 你的电脑（Clash Merge、LaunchAgent）脚本够不着  
 3. 用户明确要求助手盯着并通知  
 
@@ -523,7 +619,7 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 
 ### J3. 无例程 / 无助手环境
 
-装上 J1 cron/systemd，并告诉用户手动说「doctor」或直接跑 `scripts/doctor.sh` 即可复检。
+按 J0/J1 装上常驻 loop、systemd 或 cron（有哪个用哪个），并告诉用户手动说「doctor」或直接跑 `scripts/doctor.sh` 即可复检。
 
 ---
 
@@ -531,7 +627,7 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 ## FAQ（对用户可直接复述；助手先查这里）
 
 1. **Access 授权/会话有期限吗？**  
-   有。常见大约 **24 小时**。过期后在**你的电脑**重新邮箱 OTP（`cloudflared access login` 或浏览器），再重启 `access tcp`。不要判成翻墙机器故障。
+   有。面板**默认**约 **24 小时**；可在应用 **Session Duration**（建议同步 **Global session**）调到更长，**最长约一个月**。本 skill Setup **默认引导 7 天**（`168h`）。过期后在**你的电脑**重新邮箱 OTP（`cloudflared access login` 或浏览器），再重启 `access tcp`。不要判成翻墙机器故障。官方无「永久会话」。
 
 2. **OpenAI / Codex 不通算失败吗？**  
    不算。出口 CF/机房 IP 的已知限制。成功标准仍是带鉴权 `generate_204` → **HTTP 204**。
@@ -558,7 +654,7 @@ bash "<本 skill 目录>/scripts/doctor.sh"
    **禁止**引导续费原便宜域。到期前买新域、迁移 `cf-tunnel-proxy.<新域>` / DNS / Access / 客户端，204 后再弃用旧域；付款用户本人。
 
 10. **Monitor 能自动续 Access OTP 吗？**  
-    不能。脚本保活只管进程/假活；OTP 过期只能通知用户手动重新登录（见 J2）。
+    不能。可先在 E5 拉长 Session Duration（默认引导 7 天）减少打扰；脚本保活只管进程/假活；过期仍只能通知用户手动重新登录（见 J2）。
 
 11. **site.env / 配置清单里有密码吗？**  
     **没有。** 只记主机名、隧道 ID、端口、配置路径等非密钥项；密码仍只在 `proxy.auth`（见 E7）。
@@ -577,14 +673,15 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 - [ ] 已告知 OpenAI 可能不可用  
 - [ ] Setup 开场已先展示整体方案图（隧道链路；Access OTP 仅作认证旁注）再给短清单  
 - [ ] Setup 后已写入翻墙机器 `site.env`（无密码）；Doctor 可从中加载  
-- [ ] **已主动询问**是否配置 Clash / Clash Verge（不得默认跳过）；用户拒绝则记录并继续人工验证  
-- [ ] 若改了 Clash：已先做带时间戳备份、已在聊天告知备份路径与还原方式，并引导用户重载/选中节点  
+- [ ] **已检测**你的电脑是否已装 Clash 类客户端；未装则已推荐 Clash Verge Rev 官方 Releases（不得静默跳过）  
+- [ ] **已主动询问**是否配置 Clash / Clash Verge（不得默认跳过）；用户拒绝或改用其它客户端时已声明「非本 skill 验收路径、不一定能排通」，并继续人工验证  
+- [ ] 若改了 Clash：已先做带时间戳备份并**聊天告知路径+还原命令**；**只写一处** Merge；重载后 **E8d API 门禁通过**（proxies 含节点、选中组正确；未误判 GLOBAL=DIRECT）  
 - [ ] **已完成人工浏览器验证**：用户确认在已选该节点下能打开谷歌/仓库页（curl 204 不够当最终验收）  
-- [ ] **Monitor / 保活询问在** Clash 决策 +（若做了则配置）+ 人工浏览器验证**之后**；未提前默认创建例程  
-- [ ] Setup 后已询问是否加 Monitor 例程（Grok Bot / Codex 等）  
+- [ ] **Monitor / 保活询问在** Clash 决策 +（若做了则配置且 API 门禁通过）+ 人工浏览器验证**之后**；未提前默认创建例程  
+- [ ] Setup 后已询问是否加 Monitor；已按 **J0** 检测环境再选 J1 路径（无 cron 可用）  
 - [ ] 保活含「假活」检测（本地 ha 与 Cloudflare 状态交叉验证）
-- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env；未询问不改 Clash；未备份不改配置；未验证前不问 Monitor）  
-- [ ] 已向用户说明 Access 会话约 24h 需重新 OTP  
+- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env；未双写 Clash；未备份不改配置；未验证前不问 Monitor）  
+- [ ] Access **Session Duration 已引导设为 7 天**（或用户明确要求的更长≤约一个月）；已说明过期仍需重新 OTP；建议 Global ≥ Application  
 - [ ] 发布主机名约定为 `cf-tunnel-proxy.<domain>`（DNS/Access/`--hostname`/site.env 一致；鉴权文件名仍为 `proxy.auth`）  
   
 
