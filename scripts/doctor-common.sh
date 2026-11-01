@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shared helpers for doctor-*.sh. Sourced only; not run directly.
-# Env (optional): HOSTNAME TUNNEL_ID ORIGIN_PORT AUTH_FILE METRICS_URL CFD CFG
+# Env (optional): HOSTNAME TUNNEL_ID ORIGIN_PORT AUTH_FILE METRICS_URL CFD CFG ROLE
+# ROLE=auto|client|host — client=你的电脑 host=翻墙机器（见 SKILL 用语）
 
 : "${ORIGIN_PORT:=17897}"
 : "${AUTH_FILE:=./proxy.auth}"

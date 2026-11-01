@@ -1,6 +1,6 @@
-# Box：部署 CONNECT 代理（模板）
+# 翻墙机器：部署 CONNECT 代理（模板）
 
-从本 skill 的 `templates/` 拷到 box 工作目录（示例 `/workspace/network/cf-box-proxy/`）：
+从本 skill 的 `templates/` 拷到**翻墙机器**工作目录（示例 `/workspace/network/cf-box-proxy/`）：
 
 ```bash
 DEST=/workspace/network/cf-box-proxy
@@ -25,13 +25,13 @@ chmod 600 proxy.auth
 - 只绑 `127.0.0.1`（或 `::1`）；脚本会拒绝非回环。
 - Cloudflare Tunnel ingress：`hostname: proxy.<domain>` → `service: tcp://127.0.0.1:17897`（端口可改，与 `PROXY_PORT` 一致）。
 - 公网侧必须再套 Cloudflare Access（邮箱 OTP）；本地 Basic 是第二层。
-- 隧道保活与 edge DNS 钉扎是环境相关运维；不要误杀 box 上其它 `cloudflared` token 隧道。
+- 隧道保活与 edge DNS 钉扎是环境相关运维；不要误杀翻墙机器上其它 `cloudflared` token 隧道。
 
-验证（在 box 本机）：
+验证（在翻墙机器本机）：
 
 ```bash
 AUTH=$(tr -d '\n' < proxy.auth)
 curl -o /dev/null -w '%{http_code}\n' -x "http://${AUTH}@127.0.0.1:17897" https://www.google.com/generate_204
 ```
 
-期望 `204`。客户端仍需 `cloudflared access tcp` 才能从公网进来。
+期望 `204`。你的电脑仍需 `cloudflared access tcp` 才能从公网进来。

@@ -7,14 +7,17 @@ source "$DIR/doctor-common.sh"
 
 layer_e2e() {
   local auth code has_access=0
-  # On origin box, CONNECT and access share the same port only on the client.
-  # Skip if no access tcp process and we already validated origin separately,
-  # unless ACCESS_E2E=1 forces the check.
+  # access tcp 只在你的电脑上；翻墙机器上通常没有。
+  # 无 access 进程且已单独验过 local_proxy 时跳过，除非 ACCESS_E2E=1。
+  if [[ "${ROLE:-auto}" == "host" && "${ACCESS_E2E:-0}" != "1" ]]; then
+    doctor_result e2e SKIP "ROLE=host（e2e 在你的电脑上跑；或设 ACCESS_E2E=1）"
+    return 0
+  fi
   if pgrep -f "cloudflared access tcp" >/dev/null 2>&1; then
     has_access=1
   fi
   if [[ "${has_access}" -ne 1 && "${ACCESS_E2E:-0}" != "1" ]]; then
-    doctor_result e2e SKIP "no access tcp process (origin-only host?)"
+    doctor_result e2e SKIP "no access tcp process（翻墙机器上常见；你的电脑请先起 access tcp）"
     return 0
   fi
   if ! auth=$(doctor_read_auth "${AUTH_FILE}"); then

@@ -21,7 +21,7 @@ layer_access() {
       doctor_result access FAIL "no token (OTP/login needed?)"
       return 1
     fi
-    doctor_result access SKIP "no token (origin-only or not logged in)"
+    doctor_result access SKIP "no token（翻墙机器上常见；或你的电脑尚未登录 OTP）"
     return 0
   fi
   exp=$(printf '%s' "$tok" | doctor_jwt_exp)

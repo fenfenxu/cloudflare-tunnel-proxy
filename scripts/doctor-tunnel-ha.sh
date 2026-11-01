@@ -6,6 +6,10 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$DIR/doctor-common.sh"
 
 layer_tunnel_ha() {
+  if [[ "${ROLE:-auto}" == "client" ]]; then
+    doctor_result tunnel_ha SKIP "ROLE=client（隧道进程在翻墙机器；请在翻墙机器上查或设 ROLE=host）"
+    return 0
+  fi
   local ha url
   if ! url=$(doctor_auto_metrics_url 2>/dev/null); then
     # no metrics: still check process
