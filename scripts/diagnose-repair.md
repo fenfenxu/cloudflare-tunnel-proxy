@@ -1,6 +1,6 @@
 # Cloudflare Tunnel Proxy 诊断与修复清单
 
-配合 skill **I 节**。占位符：`proxy.<domain>`、`<PORT>`、`USER:PASS`、`<TUNNEL_UUID>`。
+配合 skill **I 节**。可执行轻检：`scripts/doctor.sh`（见 I3）。占位符：`proxy.<domain>`、`<PORT>`、`USER:PASS`、`<TUNNEL_UUID>`。
 
 ## 1. box CONNECT
 
@@ -48,3 +48,17 @@ curl -o /dev/null -w '%{http_code}\n' -x "http://USER:PASS@127.0.0.1:<PORT>" \
   https://www.google.com/generate_204
 # 204 = 修好；只报「进程在」不算完成
 ```
+
+
+## Clash TUN IPv6 套娃（Mac 常见）
+
+症状：`websocket: bad handshake`；DNS 解析为真实 CF IP、IPv4 `route-exclude` 已配、Access token 未过期、隧道 API `healthy`，裸 `curl` WebSocket 升级可能仍返回 101。
+
+核对：
+
+```bash
+# cloudflared access tcp 出站：若源是 fdfe:dcba:9876::1 / 目标 2606:4700:: → 被 TUN 劫持
+lsof -nP -p "$(pgrep -f 'cloudflared access tcp' | head -1)" | grep -E 'TCP|UDP'
+```
+
+修复：在 Clash Verge **Merge** 的 `tun.route-exclude-address` 加入 Cloudflare IPv6 段（至少 `2606:4700::/32`），热更新/重载后 `launchctl kickstart -k gui/$(id -u)/com.liuxu.cloudflared-access-tcp`（或等价重启 access tcp）。成功时出站应类似 `192.168.x.x → 104.x/172.x:443`（en0 IPv4），端到端 `generate_204`=204。

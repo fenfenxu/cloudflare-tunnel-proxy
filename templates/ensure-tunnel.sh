@@ -1,15 +1,32 @@
 #!/usr/bin/env bash
-# Ensure one named tunnel is up. Customize CFG / TUNNEL_ID / start command.
-# Local ha_connections can lie (zombie): also require `cloudflared tunnel info`
-# to list ≥1 connector; otherwise force-kill and let the wrapper respawn.
+# Ensure one named tunnel is up. Customize via env — do not hardcode a production name.
+#
+# Required: TUNNEL_ID (named tunnel UUID)
+# Optional:
+#   CFG     cloudflared config path (default: $HOME/.cloudflared/tunnel.yml)
+#   CFD     cloudflared binary (default: $HOME/.local/bin/cloudflared)
+#   LOG     ensure log path
+#   PIN_CMD optional command/script run each pass (e.g. edge hosts pin)
+#   UP_CMD  optional start/respawn command when process gone or after kill
+#
+# Restart if: process gone (and UP_CMD set), local ha==0, OR zombie
+# (local ha>=1 but `cloudflared tunnel info` shows 0 connectors).
+# Kills ONLY the cloudflared process for this CFG — never other tunnels.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 CFG="${CFG:-$HOME/.cloudflared/tunnel.yml}"
 TUNNEL_ID="${TUNNEL_ID:?set TUNNEL_ID to the named tunnel UUID}"
 CFD="${CFD:-$HOME/.local/bin/cloudflared}"
 LOG="${LOG:-$DIR/run/tunnel-ensure.log}"
+PIN_CMD="${PIN_CMD:-}"
+UP_CMD="${UP_CMD:-}"
 mkdir -p "$(dirname "$LOG")"
 
+if [[ -n "${PIN_CMD}" ]]; then
+  bash -c "${PIN_CMD}" >>"$LOG" 2>&1 || true
+fi
+
+# Prefer the real cloudflared binary pid (exclude bash while-loop wrappers).
 pid=""
 while read -r p; do
   comm=$(ps -p "$p" -o comm= 2>/dev/null | tr -d ' ')
@@ -17,31 +34,62 @@ while read -r p; do
 done < <(pgrep -f "cloudflared tunnel .*--config ${CFG}" || true)
 
 if [[ -z "${pid}" ]]; then
-  echo "$(date -Is) cloudflared down -> start your tunnel run wrapper here" >>"$LOG"
+  echo "$(date -Is) cloudflared down -> UP_CMD" >>"$LOG"
+  if [[ -n "${UP_CMD}" ]]; then
+    bash -c "${UP_CMD}" >>"$LOG" 2>&1 || true
+  fi
   exit 0
 fi
 
-metrics_port=$(ss -ltnp 2>/dev/null | grep "pid=${pid}," | grep -oE '127\.0\.0\.1:202[0-9]+' | head -1 | cut -d: -f2 || true)
+metrics_port=""
+if command -v ss >/dev/null 2>&1; then
+  metrics_port=$(ss -ltnp 2>/dev/null | grep "pid=${pid}," | grep -oE '127\.0\.0\.1:202[0-9]+' | head -1 | cut -d: -f2 || true)
+fi
+
 ha=""
 if [[ -n "${metrics_port}" ]]; then
   ha=$(curl -fsS --max-time 2 "http://127.0.0.1:${metrics_port}/metrics" 2>/dev/null \
     | awk '/^cloudflared_tunnel_ha_connections /{print int($2)}' || true)
 fi
 
-cf_connectors=0
+# Authoritative: connectors reported by Cloudflare (via local cert).
+cf_connectors=""
 if [[ -x "$CFD" ]]; then
   info_out=$("$CFD" tunnel info "$TUNNEL_ID" 2>/dev/null || true)
+  # Data rows look like UUID timestamps; header has CONNECTOR ID
   cf_connectors=$(printf '%s\n' "$info_out" | awk 'BEGIN{c=0} /^[0-9a-f]{8}-[0-9a-f]{4}-/{c++} END{print c}')
 fi
 
 zombie=0
-if [[ -n "${ha}" && "${ha}" -ge 1 && "${cf_connectors}" -lt 1 ]]; then
+if [[ -n "${ha}" && "${ha}" -ge 1 && -n "${cf_connectors}" && "${cf_connectors}" -lt 1 ]]; then
   zombie=1
 fi
 
-if [[ (-n "${ha}" && "${ha}" -lt 1) || "${zombie}" -eq 1 ]]; then
-  echo "$(date -Is) pid=${pid} ha=${ha:-na} cf_connectors=${cf_connectors} zombie=${zombie} -> kill" >>"$LOG"
+if [[ -z "${ha}" && -z "${cf_connectors}" ]]; then
+  echo "$(date -Is) pid=${pid} port=${metrics_port:-unknown} ha=unreadable cf=unreadable (no action)" >>"$LOG"
+  exit 0
+fi
+
+need_restart=0
+reason=""
+if [[ -n "${ha}" && "${ha}" -lt 1 ]]; then
+  need_restart=1
+  reason="ha=${ha}"
+elif [[ "${zombie}" -eq 1 ]]; then
+  need_restart=1
+  reason="zombie local_ha=${ha} cf_connectors=0"
+elif [[ -z "${ha}" && -n "${cf_connectors}" && "${cf_connectors}" -lt 1 ]]; then
+  need_restart=1
+  reason="cf_connectors=0"
+fi
+
+if [[ "${need_restart}" -eq 1 ]]; then
+  echo "$(date -Is) pid=${pid} port=${metrics_port:-unknown} ${reason} -> kill cloudflared (wrapper/UP_CMD may respawn)" >>"$LOG"
   kill "$pid" 2>/dev/null || true
+  sleep 3
+  if [[ -n "${UP_CMD}" ]] && ! pgrep -f "cloudflared tunnel .*--config ${CFG}" >/dev/null; then
+    bash -c "${UP_CMD}" >>"$LOG" 2>&1 || true
+  fi
 else
-  echo "$(date -Is) ok pid=${pid} ha=${ha:-na} cf_connectors=${cf_connectors}" >>"$LOG"
+  echo "$(date -Is) ok pid=${pid} port=${metrics_port:-unknown} ha=${ha:-na} cf_connectors=${cf_connectors:-na}" >>"$LOG"
 fi

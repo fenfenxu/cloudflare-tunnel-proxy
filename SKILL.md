@@ -1,9 +1,13 @@
 ---
 name: Cloudflare Tunnel Proxy
 description: >-
-  When the user wants to set up, diagnose (doctor/health), or monitor a personal Cloudflare Tunnel + Access TCP proxy—including colloquial asks about 翻墙, 梯子, 代理, 隧道, CF, Cloudflare, Cloudflare梯子, Cloudflare翻墙代理, or a broken Clash CF node: route to Setup (A–H + offer keepalive routine), Doctor (I), or Monitor (J). Not for trycloudflare-only or domain-less paths. Do not mention affiliate/referral.
+  When the user wants to set up, diagnose (doctor/health), or monitor a personal
+  Cloudflare Tunnel + Access TCP proxy—including colloquial asks about 翻墙, 梯子,
+  代理, 隧道, CF, Cloudflare, Cloudflare梯子, Cloudflare翻墙代理, or a broken Clash CF
+  node: route to Setup (A–H + offer keepalive routine), Doctor (I), or Monitor
+  (J). Not for trycloudflare-only or domain-less paths. Do not mention
+  affiliate/referral.
 ---
-
 # Cloudflare Tunnel Proxy
 
 用 **免费 Cloudflare 账户 + 已接入 Cloudflare 的域名 + 一台可常驻的 origin 主机**，做一条个人代理：
@@ -28,7 +32,7 @@ description: >-
 |------|----------------|------|
 | **Setup** | 搭梯子 / 翻墙 / 装代理 / Cloudflare 隧道 / 从零 setup | A–H，装完再问是否挂 Monitor 例程 |
 | **Doctor** | 挂了 / 不通 / 诊断 / doctor / health / healthy / 还通不通 | I，分层诊断与修复；不要从头重装 |
-| **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，例程或保活脚本；可选端到端探测 |
+| **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，优先 cron/保活脚本；例程仅 OTP 等兜底 |
 
 不确定时：已有链路且在抱怨不通 → **Doctor**；否则 → **Setup**。
 
@@ -174,7 +178,7 @@ brew install cloudflare/cloudflare/cloudflared
 cloudflared access tcp --hostname proxy.<domain> --url 127.0.0.1:<PORT>
 ```
 
-可选 Clash HTTP 节点：`127.0.0.1:<PORT>` + `proxy.auth`。**Clash 必须给 `cloudflared` 走 DIRECT**（域名 `proxy.<domain>`、`*.cloudflareaccess.com`、进程名均直连），否则 Access WebSocket 会套娃或握手失败。
+可选 Clash HTTP 节点：`127.0.0.1:<PORT>` + `proxy.auth`。**Clash 必须给 `cloudflared` 走 DIRECT**（域名 `proxy.<domain>`、`*.cloudflareaccess.com`、进程名均直连），且 Merge `tun.route-exclude-address` 排除 Cloudflare **IPv4+IPv6**（见 G），否则 Access WebSocket 会套娃或握手失败。
 
 ### E7. 验证成功标准
 
@@ -216,6 +220,7 @@ curl -o /dev/null -w '%{http_code}\n' \
 | 未先退出 Clash 就预检 | 开场先要求退出；`RETRY_AFTER_QUIT_PROXY` 再退再测 |
 | Clash TUN fake-ip `198.18.0.0/15` | 同上；origin 侧 edge 解析成 fake-ip 会导致 `:7844` dial 超时 |
 | Clash 未 DIRECT `cloudflared` | access tcp 失败/极慢 / `websocket: bad handshake` |
+| Clash TUN 未排除 Cloudflare **IPv6**（仅排除了 104/172 等 IPv4） | `cloudflared` 经 utun 源地址 `fdfe:dcba:9876::1` 连 `2606:4700::` → `websocket: bad handshake`；IPv4 route-exclude 仍可能「DNS/路由看起来正常」。Merge `tun.route-exclude-address` 须含 `2606:4700::/32`（及常用 CF IPv6：`2803:f800::/32`、`2400:cb00::/32`、`2405:8100::/32`、`2405:b500::/32`、`2a06:98c0::/29`）。Doctor：`lsof -nP -p <pid>` 看出站是否走 TUN IPv6 |
 | **隧道假活（zombie）** | 本机 `ha_connections≥1`，但 Cloudflare API `status=down` / `connections=[]`；Access 报 `websocket: bad handshake`。**只看本地指标会漏**；见 I |
 | Access OTP / app token 过期 | 会话常约 24h；重新 `cloudflared access login` 或浏览器 OTP，再重启 access tcp |
 | 临时邮箱收不到注册商 OTP | 优先个人邮箱；换渠道或改邮箱 |
@@ -234,10 +239,12 @@ curl -o /dev/null -w '%{http_code}\n' \
 | 路径 | 用途 |
 |------|------|
 | `scripts/preflight-cf-reach.sh` | 客户端网络预检 |
+| `scripts/doctor.sh` | Doctor 轻检编排：分层跑完打印 `status=` + `RESULT` 行 |
+| `scripts/doctor-*.sh` | 分层探针（Access / CF connectors / tunnel ha / origin / e2e / Clash IPv6） |
 | `scripts/diagnose-repair.md` | Doctor：挂了时分层诊断与修复清单（给人看） |
 | `templates/connect_proxy.py` | origin CONNECT 代理 |
 | `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活 |
-| `templates/ensure-tunnel.sh` | 隧道保活样例（须对照 Cloudflare 状态，不能只看本地 ha） |
+| `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`） |
 | `box-connect-proxy.md` | origin 部署短说明 |
 | `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网（无联盟内容） |
 
@@ -261,7 +268,7 @@ Clash / curl → 本机 127.0.0.1:PORT（access tcp 监听）
 | 现象 | 优先怀疑 |
 |------|----------|
 | 本机连 `127.0.0.1:PORT` reset / 无监听 | 客户端 `access tcp` 没起来 |
-| access 日志 `websocket: bad handshake` | **隧道假活**、Access 未放行/token 无效、Clash 套娃 |
+| access 日志 `websocket: bad handshake` | **隧道假活**、Access 未放行/token 无效、Clash 套娃（含 **TUN IPv6** 未 exclude） |
 | origin 本地 `ha≥1` 但面板/API 隧道 `down` | **假活**：进程连着旧 edge，控制面已不路由 |
 | 出站 dial `198.18.x.x:7844` 超时 | origin/本机 DNS 被 fake-ip 污染 |
 | 407 Proxy Authentication Required | CONNECT 鉴权错或没带 |
@@ -293,7 +300,7 @@ Clash / curl → 本机 127.0.0.1:PORT（access tcp 监听）
 
 - `cloudflared access tcp --hostname proxy.<domain> --url 127.0.0.1:<PORT>` 在听
 - 日志无持续 `bad handshake`
-- Clash：该节点指向本机 PORT + 正确 user/pass；**`cloudflared` 与 `proxy.<domain>` DIRECT**；Merge 里给 Access / 隧道域名 fake-ip-filter
+- Clash：该节点指向本机 PORT + 正确 user/pass；**`cloudflared` 与 `proxy.<domain>` DIRECT**；Merge 里给 Access / 隧道域名 fake-ip-filter，并排除 CF IPv4+IPv6；`lsof` 确认未走 `fdfe:dcba`→`2606:4700`
 - 端到端：`curl -x http://USER:PASS@127.0.0.1:PORT … generate_204` → **204**
 
 ### I2. 修复动作（对症）
@@ -304,21 +311,29 @@ Clash / curl → 本机 127.0.0.1:PORT（access tcp 监听）
 | **隧道假活** 或 API down | **杀掉**该 named tunnel 的 cloudflared 进程，让保活包装拉起；等 API 变 `healthy` 且 connections≥1；**不要**只 `ensure` 看本地 ha（假活时 ha 仍可能 ≥1） |
 | edge / fake-ip | 重跑 edge pin（DoH→hosts）；确认未再解析到 `198.18.0.0/15` |
 | Access token 过期 | 重新 OTP；更新 token 文件后重启 access tcp |
-| access 仍 bad handshake 且隧道已 healthy | 查 Clash 是否劫持 cloudflared；临时关 TUN 复测；确认 DIRECT 规则 |
+| access 仍 bad handshake 且隧道已 healthy | 查 Clash 是否劫持 cloudflared（**先看 `lsof` 是否 `fdfe:dcba`→`2606:4700`**）；补 IPv6 `route-exclude-address`；临时关 TUN 复测；确认 DIRECT 规则 |
 | DNS/CNAME 错 | 修成指向正确 `<TUNNEL_UUID>.cfargotunnel.com` |
 
 修复后必须以 **端到端 204** 为完成标准；只报「进程在」不算修好。
 
-### I3. Doctor 轻检（给 Monitor / routine 用）
+### I3. Doctor 轻检（给 Monitor / cron 用）
 
-定时巡检可只做「轻检」，避免每次刷面板：
+优先跑可执行轻检（避免每次手刷面板）：
 
-1. origin：CONNECT `generate_204` → 204  
-2. 隧道：本地 ha≥1 **且** API/面板 healthy（交叉验证，防假活）  
-3. 可选客户端：本机经 access 端口再打一次 `generate_204`  
-4. 任一步失败 → 走 I2；需要人工 OTP 时**停止自动修**并通知用户  
+```bash
+HOSTNAME=proxy.<domain> \
+TUNNEL_ID=<TUNNEL_UUID> \
+ORIGIN_PORT=<PORT> \
+AUTH_FILE=/path/to/proxy.auth \
+CFG=$HOME/.cloudflared/<tunnel>.yml \
+bash "<本 skill 目录>/scripts/doctor.sh"
+```
 
-更细的检查命令清单见 `scripts/diagnose-repair.md`。
+输出：`status=OK|degraded|down` 与各层 `RESULT …=OK|FAIL|SKIP`；**仅 `status=OK` 时 exit 0**。
+
+层顺序：Access（客户端 JWT，可选）→ CF connectors / 假活交叉验证 → 本地 `ha_connections` → origin CONNECT `generate_204` → 若有 access tcp 再 e2e → macOS Clash TUN IPv6（`fdfe`→`2606:4700`）。
+
+任一步失败 → 走 I2；需要人工 OTP 时**停止自动修**并通知用户。更细的命令清单见 `scripts/diagnose-repair.md`。
 
 ---
 
@@ -326,32 +341,31 @@ Clash / curl → 本机 127.0.0.1:PORT（access tcp 监听）
 
 目标：链路持续可用；假活能被发现并自动拉起；修不了的（尤其 Access OTP）及时喊人。
 
-### J1. origin / 进程级保活（始终建议）
+**优先顺序：常驻/cron 脚本 → 助手例程仅作兜底。** 不要用高频 Grok Bot routine 轮询代替 `ensure`/`doctor.sh`。
 
-- CONNECT：`templates/ensure.sh`（或等价 cron/systemd）  
-- 隧道：`templates/ensure-tunnel.sh`——**不能**只信本地 `ha_connections`：  
+### J1. origin / 进程级保活（始终建议，Monitor 主路径）
+
+- CONNECT：`templates/ensure.sh`（cron / systemd timer / 短循环）  
+- 隧道：`templates/ensure-tunnel.sh`（设 `TUNNEL_ID`；可选 `PIN_CMD` / `UP_CMD`）——**不能**只信本地 `ha_connections`：  
   1. 本地 ha==0 → 重启 cloudflared  
-  2. 本地 ha≥1 但 API down → **强制重启**（假活）  
-  3. 可选：端到端 `generate_204` 连续失败再告警  
+  2. 本地 ha≥1 但 CF connectors=0 → **强制重启**（假活）；只杀该 `CFG` 对应进程  
+  3. 可选：cron 再跑 `scripts/doctor.sh`；连续非 OK 再告警  
 - **勿**误杀同一主机上其它隧道  
-- Clash：安装/改 Merge 时固定写入 cloudflared DIRECT + 隧道/Access 域名 fake-ip-filter  
+- Clash：安装/改 Merge 时固定写入 cloudflared DIRECT + 隧道/Access 域名 fake-ip-filter + Cloudflare **IPv4 与 IPv6** `tun.route-exclude-address`  
 
-### J2. 助手例程（Grok Bot / Codex 等）
+### J2. 助手例程（Grok Bot / Codex 等）——仅 OTP / 需人工时的 fallback
 
-Setup 完成后用户同意，或用户主动要 Monitor 时：
+脚本能覆盖的保活与轻检（J1 + `doctor.sh`）**不要**再建密轮询例程。仅在下列情况加 routine：
 
-1. 创建定时例程（名称示例：`Cloudflare Tunnel Proxy · doctor`）  
-2. 触发：每 15–30 分钟或每小时（按用户偏好；不要密于 5 分钟）  
-3. 例程正文要点（占位符替换成该用户的主机名/路径，**不要**把密钥写进例程明文若可避免）：  
-   - 加载本 skill，走 **Doctor 轻检（I3）**  
-   - 失败则按 I2 自动修复  
-   - 需要 OTP / 用户本机操作 → 通知用户，不要空转  
-   - **无变化且健康时保持安静**（不要每次都汇报「还好」）  
-4. Access 会话约 24h：到期前可提醒续 OTP，或接受偶发重新登录；可在 Zero Trust 适当加长 session（权衡安全）
+1. Access OTP / token 过期需人点登录  
+2. 客户端本机（Clash Merge、LaunchAgent）脚本够不着  
+3. 用户明确要求助手盯着并通知  
 
-### J3. 无例程环境
+若仍建例程：间隔 ≥15–30 分钟；正文跑 I3/`doctor.sh`；失败按 I2；需 OTP 则通知并停自动修；**健康时保持安静**。
 
-若当前助手不能建 routine：把 J1 脚本装上，并告诉用户手动说「doctor」即可复检。
+### J3. 无例程 / 无助手环境
+
+装上 J1 cron/systemd，并告诉用户手动说「doctor」或直接跑 `scripts/doctor.sh` 即可复检。
 
 ---
 
