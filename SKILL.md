@@ -5,8 +5,7 @@ description: >-
   Cloudflare Tunnel + Access TCP proxy—including colloquial asks about 翻墙, 梯子,
   代理, 隧道, CF, Cloudflare, Cloudflare梯子, Cloudflare翻墙代理, or a broken Clash CF
   node: route to Setup (A–H + offer keepalive routine), Doctor (I), or Monitor
-  (J). Not for trycloudflare-only or domain-less paths. Do not mention
-  affiliate/referral.
+  (J). Not for trycloudflare-only or domain-less paths.
 ---
 # Cloudflare Tunnel Proxy
 
@@ -27,7 +26,9 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 ## 这套方案是什么（先读再动手）
 
-本 skill 描述的是一条**个人翻墙 / 代理产品**，不是零散命令清单。整体组合是：
+本仓库是一份 **Agent Skill**（Grok Bot / Cursor 风格 skill）。个人 Cloudflare 隧道代理方案**以 skill 形式实现**：助手按 **Setup / Doctor / Monitor** 带用户搭、查、保活——不是独立 App，也不是零散命令清单。
+
+整体组合是：
 
 **Cloudflare（域名 + Access + 命名隧道） + 一台能访问外网的翻墙机器 + 你的电脑上的客户端。**
 
@@ -56,7 +57,6 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 助手专属细节（某人的邮箱、生产主机名、现成密码）**不要**写进本 skill；一律用占位符。把用户当普通新用户：不要假设已有 CF/域名/`cloudflared`/现成隧道。
 
-**禁止**在本 skill、开场说明或对用户话术里提及联盟、返佣、referral、带货佣金；买域名只谈用户怎么付、付多少。
 
 本 skill 是**一组能力**（一个入口、多种模式），先路由再动手：
 
@@ -81,7 +81,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 | 不暴露公网端口 | 不开放防火墙/安全组；不用 trycloudflare 当生产入口 | 见 F / Setup 硬禁止 |
 | 密钥存放 | `proxy.auth`、隧道凭证等 **chmod 600**；聊天/记忆/skill **永不写真实密码或生产主机名** | 对用户口述或让其本地保存；文档只用 `USER`/`PASS`/`proxy.<domain>` 占位符 |
 | 破坏性操作 | 删隧道、弃用旧域、杀非本隧道进程、改生产配置 | **先说明后果，等用户明确确认**再执行 |
-| 域名付款 | 支付宝/微信扫码 | **仅用户本人付**；助手不代付、不提联盟/返佣 |
+| 域名付款 | 支付宝/微信扫码 | **仅用户本人付**；助手不代付 |
 
 链路本身的安全叙事（可原话告诉用户）：陌生人过不了 Access OTP；过了隧道也只能打到翻墙机器的回环代理；回环上还有 Basic auth。三层缺一不可。
 
@@ -294,7 +294,7 @@ curl -o /dev/null -w '%{http_code}\n' \
 - [ ] **禁止** trycloudflare-only / 无自有域名方案；无 zone = NO-GO  
 - [ ] **禁止**把 `proxy.auth`、真实密码、生产主机名、隧道凭证写进 skill、README、聊天记录或记忆；只给用户私密保存
 - [ ] **禁止**把密码 / token / JWT / `proxy.auth` 内容写进 `site.env` / `inventory.env`（清单只含非密钥配置）  
-- [ ] **禁止**提及联盟、返佣、referral、带货佣金；域名链接只用 `AUTHOR_LINKS.md` 官网  
+- [ ] 域名链接只用 `AUTHOR_LINKS.md` 官网  
 - [ ] **禁止**未完全退出 Clash / Verge / 系统 HTTP(S)/SOCKS 代理就跑预检  
 - [ ] **禁止**引导续费原便宜域名；到期策略 = 买新域迁移后弃用旧域  
 - [ ] **禁止**用「1.1.1.1 通不通」或含糊「能上网」代替 Cloudflare 预检结论  
@@ -312,7 +312,6 @@ curl -o /dev/null -w '%{http_code}\n' \
 | 坑 | 处理 |
 |----|------|
 | 开场写「能上网」含糊 | **禁止**；写「本机网络能摸到 Cloudflare（预检）」 |
-| 在 skill/话术里提联盟返佣 | **禁止** |
 | 未先退出 Clash 就预检 | 开场先要求退出；`RETRY_AFTER_QUIT_PROXY` 再退再测 |
 | Clash TUN fake-ip `198.18.0.0/15` | 同上；翻墙机器侧 edge 解析成 fake-ip 会导致 `:7844` dial 超时 |
 | Clash 未 DIRECT `cloudflared` | access tcp 失败/极慢 / `websocket: bad handshake` |
@@ -344,7 +343,7 @@ curl -o /dev/null -w '%{http_code}\n' \
 | `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
 | `scripts/load-site-env.sh` | Doctor/ensure 加载 `SITE_ENV` / `site.env` / `inventory.env` |
 | `box-connect-proxy.md` | 翻墙机器部署短说明 |
-| `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网（无联盟内容） |
+| `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网 |
 
 ---
 
@@ -524,7 +523,7 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 - [ ] Setup 后已写入翻墙机器 `site.env`（无密码）；Doctor 可从中加载  
 - [ ] Setup 后已询问是否加 Monitor 例程（Grok Bot / Codex 等）  
 - [ ] 保活含「假活」检测（本地 ha 与 Cloudflare 状态交叉验证）
-- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、无联盟、未把 proxy.auth / 密码写入 skill/聊天/site.env）  
+- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env）  
 - [ ] 已向用户说明 Access 会话约 24h 需重新 OTP  
   
 
