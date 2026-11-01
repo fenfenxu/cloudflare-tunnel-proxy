@@ -256,6 +256,12 @@ brew install cloudflare/cloudflare/cloudflared
 cloudflared access tcp --hostname cf-tunnel-proxy.<domain> --url 127.0.0.1:<PORT>
 ```
 
+**macOS 保活（必配 KeepAlive，禁止只靠定时轮询）：**
+
+1. 前台脚本用 `exec` 跑 access tcp（模板：`templates/run-access-tcp.sh`），**不要** `nohup … &` 后立刻 exit——否则 LaunchAgent 会误以为任务已结束。  
+2. 安装 LaunchAgent（模板：`templates/com.cf-tunnel-proxy.access-tcp.plist`）：**`KeepAlive=true`** + `RunAtLoad=true`；**禁止**只用 `StartInterval`（例如 300）当唯一保活——那种要等下一次定时才重生，`pkill` 后不会立刻回来。  
+3. Label 可用 `com.<user>.cf-tunnel-proxy.access-tcp`；改完后 `launchctl bootout` 再 `bootstrap`，并用一次 `pkill -f 'cloudflared access tcp'` 验证约数秒内自动拉起。
+
 技术探测（助手本机可代跑；**这只是技术层验收，不是对用户的最终验收**）：
 
 ```bash
@@ -416,6 +422,7 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 - [ ] **禁止**把密码复述进聊天（读到 `proxy.auth` 也只在本机注入配置，不回显）  
 - [ ] **禁止**在用户确认「浏览器翻墙可用」（E9）之前默认创建 Monitor / 保活例程；写 site.env 可以在 curl 204 后做，但问 Monitor 必须放在 Clash 决策 + 人工验证之后  
 - [ ] **禁止**把「有 crontab」当成 Setup/Monitor 前提；无 cron 时走 J0/J1 常驻 loop / LaunchAgent / systemd  
+- [ ] **禁止**在你的电脑（macOS）上只用 `StartInterval` 轮询保活 `access tcp`；必须 LaunchAgent **`KeepAlive`** + 前台 `exec`（见 E6 / 模板）  
 
 与 **G. 已知坑** 同一套红线；G 偏排障，F2 偏 Setup 闸门。
 
@@ -458,6 +465,8 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 | `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`；可读 site.env） |
 | `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
 | `templates/clash-verge-merge.snippet.yaml` | Clash Verge Merge 片段示例（节点 + DIRECT + fake-ip-filter + tun exclude；改前先备份） |
+| `templates/run-access-tcp.sh` | 你的电脑：前台 `exec` cloudflared access tcp（给 LaunchAgent KeepAlive 用） |
+| `templates/com.cf-tunnel-proxy.access-tcp.plist` | macOS LaunchAgent 示例：**KeepAlive**，勿改成仅 StartInterval |
 | `scripts/load-site-env.sh` | Doctor/ensure 加载 `SITE_ENV` / `site.env` / `inventory.env` |
 | `box-connect-proxy.md` | 翻墙机器部署短说明 |
 | `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网 |
@@ -582,7 +591,7 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 if no crontab AND ( /home/box OR agent-data OR routines available ):
   ENV=grok_bot_or_no_cron → 默认无 cron 方案
 elif Darwin client:
-  ENV=mac_client → LaunchAgent + ensure
+  ENV=mac_client → LaunchAgent KeepAlive（access tcp 前台 exec；勿只用 StartInterval）
 elif systemd available:
   ENV=linux_host → systemd timer/user service
 else:
@@ -596,7 +605,7 @@ else:
 | **grok_bot_or_no_cron** | 常驻 `monitor-loop` 调 `ensure.sh` + `ensure-tunnel.sh`（或等价）；有 systemd 用户会话可用 `systemd-run --user` | loop 内间歇 `doctor.sh ROLE=host`；或助手 routine ≥15–30min | routine **仅** OTP 提醒 + 你的电脑够不着的部分 |
 | **linux_host** | user systemd service/timer | timer 跑 doctor | 同上 |
 | **有 cron 的传统机** | cron 调 ensure* | cron doctor | J2 |
-| **mac_client（你的电脑）** | LaunchAgent 保 `access tcp`（及可选 ensure） | 可选本地脚本；助手 routine 兜底 | OTP **一定**在这台发生 |
+| **mac_client（你的电脑）** | LaunchAgent **`KeepAlive`** 保 `access tcp`（`exec` 前台跑；**禁止**仅 `StartInterval`） | 可选本地脚本；助手 routine 兜底 | OTP **一定**在这台发生 |
 
 共通：
 
@@ -669,6 +678,7 @@ else:
 - [ ] Access + 用户邮箱 OTP Allow  
 - [ ] 翻墙机器代理仅 `127.0.0.1` + 随机 Basic auth  
 - [ ] 你的电脑 `cloudflared access tcp` + OTP 成功  
+- [ ] macOS 若装了保活：LaunchAgent 为 **KeepAlive**（非仅 StartInterval）；已验证杀进程后数秒内自拉起  
 - [ ] `curl … generate_204` → **204**（技术探测）  
 - [ ] 已告知 OpenAI 可能不可用  
 - [ ] Setup 开场已先展示整体方案图（隧道链路；Access OTP 仅作认证旁注）再给短清单  
