@@ -10,15 +10,18 @@
 2. 在翻墙机器上只监听本机的一个小代理，再经 **Cloudflare 命名隧道** 发到你的域名。
 3. 在你的电脑上用 `cloudflared access tcp`（可选 Clash）连这条隧道；用邮箱 OTP 登录 Cloudflare Access 鉴权。
 
-合在一起，就是：
+合在一起，就是这条链路（**Access 邮箱 OTP 是进隧道前的认证，不是网络一跳**）：
 
 ```
 你的电脑（Clash / cloudflared access tcp）
-  → Cloudflare Access（邮箱一次性验证码）
   → Cloudflare 命名隧道
   → 翻墙机器上的本机代理（只绑 127.0.0.1）
   → 从翻墙机器出口访问外网
+
+旁注：进入隧道前需 Access 邮箱 OTP（认证门禁，不是链路跳点）
 ```
+
+Setup 开场应先给人看这张图，再列「要具备什么 / 接下来几步」。
 
 **成功标准（给用户的一句话）：** 在你的电脑上，带鉴权访问探测地址返回 **HTTP 204**（例如 Google `generate_204`）。
 
@@ -125,11 +128,18 @@ Clash TUN / fake-ip 会污染 DNS（常见 `198.18.0.0/15`），预检会误判�
 **Q9. 域名快到期了要续费吗？**  
 本方案默认 **不引导续费**原便宜域：到期前再买一个新的便宜域名，把隧道主机名、DNS、Access、客户端都迁过去，旧域弃用。付款仍由你本人完成。
 
+## 方案布局（配置从哪来）
+
+- 翻墙机器部署目录：`proxy.auth`（密钥）+ **`site.env` / `inventory.env`（非密钥清单：主机名、隧道 ID、端口、CFG 路径等）**
+- Doctor / ensure / Monitor **从 site.env 加载**，不要把这些值写死在脚本里；模板：`templates/site.env.example`
+- 可选：你的电脑放一份客户端用的 site.env 副本（仍不含密码）
+- **配置清单不含密码**；密码只在 `proxy.auth`
+
 ## 仓库里有什么
 
 - `SKILL.md` — 给助手用的完整配方（Grok Bot / Cursor skill）
-- `scripts/` — 网络预检 + 分层 Doctor（`doctor.sh`）
-- `templates/` — 翻墙机器上的代理与保活脚本
+- `scripts/` — 网络预检 + 分层 Doctor（`doctor.sh`）+ `load-site-env.sh`
+- `templates/` — 翻墙机器上的代理与保活脚本 + `site.env.example`
 - `AUTHOR_LINKS.md` — 支持支付宝/微信的域名注册商官网（无联盟）
 - `box-connect-proxy.md` — 翻墙机器部署短说明
 

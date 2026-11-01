@@ -2,6 +2,12 @@
 # Shared helpers for doctor-*.sh. Sourced only; not run directly.
 # Env (optional): HOSTNAME TUNNEL_ID ORIGIN_PORT AUTH_FILE METRICS_URL CFD CFG ROLE
 # ROLE=auto|client|host — client=你的电脑 host=翻墙机器（见 SKILL 用语）
+# Site inventory: SITE_ENV or ./site.env / AUTH_FILE sibling (see load-site-env.sh)
+
+_DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=load-site-env.sh
+source "$_DOC_DIR/load-site-env.sh"
+ctp_load_site_env
 
 : "${ORIGIN_PORT:=17897}"
 : "${AUTH_FILE:=./proxy.auth}"

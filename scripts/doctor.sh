@@ -5,6 +5,8 @@
 #        client = 你的电脑（Clash / access tcp）
 #        host   = 翻墙机器（CONNECT + named tunnel）
 #        auto   = 旧行为（不按角色跳过；跨机器可能误报）
+# Site inventory (optional, no secrets): SITE_ENV, or ./site.env / inventory.env,
+#   or sibling of AUTH_FILE — loaded via doctor-common → load-site-env.sh
 # Exit 0 only if light-check layers that matter are healthy enough.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"

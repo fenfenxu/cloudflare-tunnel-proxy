@@ -35,3 +35,8 @@ curl -o /dev/null -w '%{http_code}\n' -x "http://${AUTH}@127.0.0.1:17897" https:
 ```
 
 期望 `204`。你的电脑仍需 `cloudflared access tcp` 才能从公网进来。
+
+## 配置清单 site.env（不含密码）
+
+Setup 成功后在本目录写 `site.env`（可参考仓库 `templates/site.env.example`）：主机名、隧道 ID、端口、`CFG` / `AUTH_FILE` 路径等。**不要**写入密码或 token。Doctor / `ensure-tunnel.sh` 会自动加载。
+

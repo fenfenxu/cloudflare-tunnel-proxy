@@ -37,14 +37,15 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 2. **Cloudflare**：免费账户 + **已接入的自有域名**（硬前提；`trycloudflare` / 无域名 = 不做）；Access 用邮箱 OTP 挡住陌生人；隧道负责把你的电脑连到翻墙机器，而不用把代理端口暴露到公网。
 3. **你的电脑**：`cloudflared access tcp`（可选 Clash）连 `proxy.<域名>`；日常流量经这条链路出去。
 
-链路（记熟，排障按此分层）：
+链路（记熟，排障按此分层；**Access OTP 是进隧道前的认证，不是链路上的一跳**）：
 
 ```
 你的电脑（Clash / cloudflared access tcp）
-  → Cloudflare Access（邮箱 OTP）
   → Cloudflare 命名隧道
   → 翻墙机器上 127.0.0.1 CONNECT 代理
   → 翻墙机器出口访问外网
+
+旁注：进入隧道前需 Cloudflare Access 邮箱 OTP（认证门禁，不是网络跳点）
 ```
 
 **给用户的成功标准：** 在你的电脑上带鉴权探测 → HTTP **204**。OpenAI 等不可用 = 已知出口限制，不算搭建失败。
@@ -84,9 +85,29 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 链路本身的安全叙事（可原话告诉用户）：陌生人过不了 Access OTP；过了隧道也只能打到翻墙机器的回环代理；回环上还有 Basic auth。三层缺一不可。
 
-## A. Setup · 开场（短清单，禁止长文堆砌）
+## A. Setup · 开场（先发整体方案图，再短清单；禁止长文堆砌）
 
-聊天里**不要**贴大段成本说明。用下面这种短结构，一眼看清「要具备什么 → 接下来做什么」。措辞要直白，**禁止**用含糊的「能上网」。
+对用户做 Setup 时，**第一屏必须先发整体方案图**（ASCII 或 mermaid 均可），再接「要具备什么」与「接下来几步」。不要把架构埋到 README 深处才说。聊天里**不要**贴大段成本说明。措辞要直白，**禁止**用含糊的「能上网」。
+
+**整体方案（先给人看这张图）**
+
+```
+你的电脑（Clash / cloudflared access tcp）
+  → Cloudflare 命名隧道
+  → 翻墙机器 CONNECT 代理（只绑 127.0.0.1）
+  → 翻墙机器出口访问外网
+
+旁注：进入隧道前需 Access 邮箱 OTP（认证门禁，不是链路一跳）
+```
+
+```mermaid
+flowchart LR
+  C[你的电脑] --> T[Cloudflare 命名隧道]
+  T --> P[翻墙机器 CONNECT]
+  P --> O[出口]
+```
+
+> Access 邮箱 OTP = 进隧道前的身份验证，**不要**画成「你的电脑 → Access OTP → 隧道」那种网络跳点。
 
 **要具备**
 1. **本机网络能摸到 Cloudflare**（先完全退出 Clash / Verge / 其它 TUN，并关掉系统 HTTP/HTTPS/SOCKS 代理，再跑预检；通了才继续）
@@ -94,11 +115,11 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 3. **一个自己的完整域名**（没有也可现买；助手选便宜档，首年常约 **$1** 量级；付费用**支付宝或微信**扫码，用户本人付）
 4. 接受：出口常是 CF / 机房 IP，**OpenAI / Codex 等可能不可用**（已知限制）
 
-**接下来做什么**
+**接下来做什么（安装向导）**
 1. 预检：本机能否访问 Cloudflare  
 2. 注册/登录 Cloudflare（免费）  
 3. 助手选一个便宜域名 → 你支付宝/微信付款 → NS 指到 CF  
-4. 翻墙机器起本地代理 → 开隧道 + Access → 你的电脑装 `cloudflared` 验证  
+4. 翻墙机器起本地代理 → 开隧道 + Access 门禁 → 你的电脑装 `cloudflared` 验证  
 
 一句问是否继续。不愿买域名或拒绝成本 → **硬停**（见 F）。
 
@@ -236,9 +257,17 @@ curl -o /dev/null -w '%{http_code}\n' \
 
 **成功：** HTTP **204**。OpenAI 失败 = 已知限制，不算搭建失败。
 
-### E8. Setup 完成后：询问是否加 Monitor 例程
+### E8. Setup 完成后：写 site.env（配置清单，不含密码）+ 询问 Monitor
 
-端到端 **204** 之后，**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
+端到端 **204** 之后，助手**必须**在翻墙机器部署目录旁写入 `site.env`（也可叫 `inventory.env`；模板见 `templates/site.env.example`），供 Doctor / ensure / Monitor **读取**，不要把 HOSTNAME、TUNNEL_ID、端口等硬编码进脚本。
+
+- **翻墙机器（必写）：** 与 `proxy.auth` 同级，例如部署目录下的 `site.env`
+- **你的电脑（可选副本）：** 只放客户端 Doctor 需要的键（如 `HOSTNAME`、`ROLE=client`、`ORIGIN_PORT` / `LISTEN_PORT`、`CFD`）
+- **允许键：** `HOSTNAME`、`TUNNEL_ID`、`TUNNEL_NAME`、`ORIGIN_PORT` / `LISTEN_PORT`、`CFG`、`AUTH_FILE`（路径）、`ROLE`、`CFD`、`ACCESS_APP_URL`、`NOTES` 等
+- **禁止写入：** 密码、tunnel token、Access JWT、`proxy.auth` 内容
+- Doctor 自动加载：`SITE_ENV`，或 `./site.env` / `./inventory.env`，或 `$AUTH_FILE` 同目录的 `site.env`（见 `scripts/load-site-env.sh`）；已在环境里显式设置的变量不被覆盖
+
+然后**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
 
 - 环境若是 **Grok Bot / Codex**（或其它支持日程例程、定时任务的助手）：说明可以加一条 **routine**，定期跑 **Doctor**（健康检查），发现问题按 I2 **自动修复**（假活强制重启等），修好或修不了再通知。
 - 建议默认节奏：每 **15–30 分钟** 或每小时一次 Doctor 轻检；Access OTP 过期类问题以「提醒重新登录」为主，不要假装能无交互续 OTP。
@@ -263,7 +292,8 @@ curl -o /dev/null -w '%{http_code}\n' \
 - [ ] **禁止**无密码、弱密码、或使用文档/模板里的示例密码；必须 `openssl rand`（或同等）生成随机串  
 - [ ] **禁止** CONNECT / 本地代理监听 `0.0.0.0` 或其它非回环地址；只允许 `127.0.0.1`  
 - [ ] **禁止** trycloudflare-only / 无自有域名方案；无 zone = NO-GO  
-- [ ] **禁止**把 `proxy.auth`、真实密码、生产主机名、隧道凭证写进 skill、README、聊天记录或记忆；只给用户私密保存  
+- [ ] **禁止**把 `proxy.auth`、真实密码、生产主机名、隧道凭证写进 skill、README、聊天记录或记忆；只给用户私密保存
+- [ ] **禁止**把密码 / token / JWT / `proxy.auth` 内容写进 `site.env` / `inventory.env`（清单只含非密钥配置）  
 - [ ] **禁止**提及联盟、返佣、referral、带货佣金；域名链接只用 `AUTHOR_LINKS.md` 官网  
 - [ ] **禁止**未完全退出 Clash / Verge / 系统 HTTP(S)/SOCKS 代理就跑预检  
 - [ ] **禁止**引导续费原便宜域名；到期策略 = 买新域迁移后弃用旧域  
@@ -310,7 +340,9 @@ curl -o /dev/null -w '%{http_code}\n' \
 | `scripts/diagnose-repair.md` | Doctor：挂了时分层诊断与修复清单（给人看） |
 | `templates/connect_proxy.py` | 翻墙机器 CONNECT 代理 |
 | `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活 |
-| `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`） |
+| `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`；可读 site.env） |
+| `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
+| `scripts/load-site-env.sh` | Doctor/ensure 加载 `SITE_ENV` / `site.env` / `inventory.env` |
 | `box-connect-proxy.md` | 翻墙机器部署短说明 |
 | `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网（无联盟内容） |
 
@@ -324,9 +356,7 @@ curl -o /dev/null -w '%{http_code}\n' \
 
 ```
 Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
-  → cloudflared access（Access JWT）
-  → https://proxy.<domain> WebSocket
-  → Cloudflare edge → Named Tunnel
+  → Cloudflare 命名隧道（WebSocket 至 edge；进入前需 Access 邮箱 OTP / JWT 认证，不是单独一跳）
   → 翻墙机器 127.0.0.1:PORT（CONNECT 代理）
   → 出口
 ```
@@ -387,6 +417,10 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 优先跑可执行轻检（避免每次手刷面板）：
 
 ```bash
+# 若部署目录已有 site.env，可直接：
+#   cd /path/to/deploy && bash "<本 skill 目录>/scripts/doctor.sh"
+# 或：SITE_ENV=/path/to/site.env bash .../doctor.sh
+# 仍可用环境变量显式覆盖清单中的值：
 HOSTNAME=proxy.<domain> \
 TUNNEL_ID=<TUNNEL_UUID> \
 ORIGIN_PORT=<PORT> \
@@ -471,6 +505,9 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 10. **Monitor 能自动续 Access OTP 吗？**  
     不能。脚本保活只管进程/假活；OTP 过期只能通知用户手动重新登录（见 J2）。
 
+11. **site.env / 配置清单里有密码吗？**  
+    **没有。** 只记主机名、隧道 ID、端口、配置路径等非密钥项；密码仍只在 `proxy.auth`（见 E8）。
+
 ---
 ## 成功标准（清单）
 
@@ -483,9 +520,11 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 - [ ] 你的电脑 `cloudflared access tcp` + OTP 成功  
 - [ ] `curl … generate_204` → **204**  
 - [ ] 已告知 OpenAI 可能不可用  
+- [ ] Setup 开场已先展示整体方案图（隧道链路；Access OTP 仅作认证旁注）再给短清单  
+- [ ] Setup 后已写入翻墙机器 `site.env`（无密码）；Doctor 可从中加载  
 - [ ] Setup 后已询问是否加 Monitor 例程（Grok Bot / Codex 等）  
 - [ ] 保活含「假活」检测（本地 ha 与 Cloudflare 状态交叉验证）
-- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、无联盟、未把 proxy.auth 写入 skill/聊天）  
+- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、无联盟、未把 proxy.auth / 密码写入 skill/聊天/site.env）  
 - [ ] 已向用户说明 Access 会话约 24h 需重新 OTP  
   
 

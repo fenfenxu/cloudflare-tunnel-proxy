@@ -14,8 +14,43 @@
 # Kills ONLY the cloudflared process for this CFG — never other tunnels.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# Load site inventory (no secrets): SITE_ENV or $DIR/site.env|inventory.env
+_load_site() {
+  local f="" line key val
+  if [[ -n "${SITE_ENV:-}" && -f "${SITE_ENV}" ]]; then f="${SITE_ENV}"
+  elif [[ -f "$DIR/site.env" ]]; then f="$DIR/site.env"
+  elif [[ -f "$DIR/inventory.env" ]]; then f="$DIR/inventory.env"
+  elif [[ -f ./site.env ]]; then f=./site.env
+  elif [[ -f ./inventory.env ]]; then f=./inventory.env
+  fi
+  [[ -n "$f" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[2]}"; val="${BASH_REMATCH[3]}"
+      if [[ "$val" =~ ^\"(.*)\"$ ]]; then val="${BASH_REMATCH[1]}"; fi
+      if [[ "$val" =~ ^\'(.*)\'$ ]]; then val="${BASH_REMATCH[1]}"; fi
+      case "$key" in
+        HOSTNAME|TUNNEL_ID|TUNNEL_NAME|ORIGIN_PORT|LISTEN_PORT|CFG|AUTH_FILE|ROLE|CFD|ACCESS_APP_URL|NOTES|METRICS_URL)
+          if [[ -n "$val" ]]; then
+            if [[ -z "${!key:-}" ]]; then
+              printf -v "$key" '%s' "$val"; export "$key"
+            elif [[ "$key" == "HOSTNAME" ]]; then
+              _sys="$(hostname 2>/dev/null || true)"
+              if [[ "${!key}" == "$_sys" || "${!key}" == "${_sys%%.*}" ]]; then
+                printf -v "$key" '%s' "$val"; export "$key"
+              fi
+            fi
+          fi
+          ;;
+      esac
+    fi
+  done <"$f"
+}
+_load_site
 CFG="${CFG:-$HOME/.cloudflared/tunnel.yml}"
-TUNNEL_ID="${TUNNEL_ID:?set TUNNEL_ID to the named tunnel UUID}"
+TUNNEL_ID="${TUNNEL_ID:?set TUNNEL_ID to the named tunnel UUID (or put it in site.env)}"
 CFD="${CFD:-$HOME/.local/bin/cloudflared}"
 LOG="${LOG:-$DIR/run/tunnel-ensure.log}"
 PIN_CMD="${PIN_CMD:-}"
