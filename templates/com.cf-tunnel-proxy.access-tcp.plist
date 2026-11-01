@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cf-tunnel-proxy.access-tcp</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/REPLACE/.local/cf-tunnel-proxy/run-access-tcp.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE/.local/cf-tunnel-proxy/access-tcp-launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE/.local/cf-tunnel-proxy/access-tcp-launchd.err</string>
+</dict>
+</plist>
