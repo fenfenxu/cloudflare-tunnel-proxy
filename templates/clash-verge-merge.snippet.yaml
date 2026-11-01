@@ -1,3 +1,7 @@
+# Clash Verge Merge 片段示例（cf-tunnel-proxy）
+# 重要：只写入「全局 Merge」或「当前 profile Merge」之一，禁止两端各贴一份（会重复代理名）。
+# 改前带时间戳备份，并在聊天告知完整路径；重载后须经 API/unix socket 确认 proxies 含本节点。
+
 # Clash Verge / Clash / mihomo Merge 片段示例（占位符，勿写真实密码/生产域）
 # 使用前：先备份原 Merge/配置，例如
 #   cp Merge.yaml "Merge.yaml.bak-cf-tunnel-$(date +%Y%m%d-%H%M%S)"
