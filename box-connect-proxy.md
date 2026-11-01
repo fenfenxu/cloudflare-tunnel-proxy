@@ -23,7 +23,7 @@ chmod 600 proxy.auth
 约束：
 
 - 只绑 `127.0.0.1`（或 `::1`）；脚本会拒绝非回环。
-- Cloudflare Tunnel ingress：`hostname: proxy.<domain>` → `service: tcp://127.0.0.1:17897`（端口可改，与 `PROXY_PORT` 一致）。
+- Cloudflare Tunnel ingress：`hostname: cf-tunnel-proxy.<domain>` → `service: tcp://127.0.0.1:17897`（端口可改，与 `PROXY_PORT` 一致）。
 - 公网侧必须再套 Cloudflare Access（邮箱 OTP）；本地 Basic 是第二层。
 - 隧道保活与 edge DNS 钉扎是环境相关运维；不要误杀翻墙机器上其它 `cloudflared` token 隧道。
 

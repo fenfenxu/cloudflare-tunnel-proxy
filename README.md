@@ -18,8 +18,9 @@
 ## 你会得到什么
 
 - 一条你自己掌控的代理：域名、Access 邮箱、翻墙机器都在你手里
-- 助手能从零 **Setup**、挂了时 **Doctor**、需要时 **Monitor** 保活
-- 成功标准：在你的电脑上带鉴权探测 → **HTTP 204**
+- 助手能从零 **Setup**（验证后问是否改 Clash、先备份；谷歌打开确认后再问保活）、挂了时 **Doctor**、需要时 **Monitor** 保活
+- 成功标准：技术探测 **HTTP 204** + 你确认浏览器能打开外网（如谷歌搜本 skill）
+- 默认发布主机名形态：`cf-tunnel-proxy.<你的域名>`（DNS / Access / `cloudflared access tcp --hostname` 一致）
 
 **你需要：** 免费 Cloudflare 账户、接到 Cloudflare 的自有域名、一台可常驻的翻墙机器。域名用支付宝 / 微信自行付款（助手不代付）。不能只用 `*.trycloudflare.com`。
 

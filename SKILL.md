@@ -4,8 +4,9 @@ description: >-
   When the user wants to set up, diagnose (doctor/health), or monitor a personal
   Cloudflare Tunnel + Access TCP proxy—including colloquial asks about 翻墙, 梯子,
   代理, 隧道, CF, Cloudflare, Cloudflare梯子, Cloudflare翻墙代理, or a broken Clash CF
-  node: route to Setup (A–H + offer keepalive routine), Doctor (I), or Monitor
-  (J). Not for trycloudflare-only or domain-less paths.
+  node: route to Setup (A–H: curl 204 → ask Clash with backup → browser verify →
+  then offer keepalive/Monitor), Doctor (I), or Monitor (J). Not for
+  trycloudflare-only or domain-less paths.
 ---
 # Cloudflare Tunnel Proxy
 
@@ -34,9 +35,9 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 角色分工：
 
-1. **翻墙机器**：常开；只在 `127.0.0.1` 跑 CONNECT 代理；用 Cloudflare 命名隧道把 `proxy.<域名>` 指到这个本机端口；出口走这台机器的外网。
+1. **翻墙机器**：常开；只在 `127.0.0.1` 跑 CONNECT 代理；用 Cloudflare 命名隧道把 `cf-tunnel-proxy.<域名>` 指到这个本机端口；出口走这台机器的外网。
 2. **Cloudflare**：免费账户 + **已接入的自有域名**（硬前提；`trycloudflare` / 无域名 = 不做）；Access 用邮箱 OTP 挡住陌生人；隧道负责把你的电脑连到翻墙机器，而不用把代理端口暴露到公网。
-3. **你的电脑**：`cloudflared access tcp`（可选 Clash）连 `proxy.<域名>`；日常流量经这条链路出去。
+3. **你的电脑**：`cloudflared access tcp`（可选 Clash）连 `cf-tunnel-proxy.<域名>`；日常流量经这条链路出去。
 
 链路（记熟，排障按此分层；**Access OTP 是进隧道前的认证，不是链路上的一跳**）：
 
@@ -49,7 +50,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 旁注：进入隧道前需 Cloudflare Access 邮箱 OTP（认证门禁，不是网络跳点）
 ```
 
-**给用户的成功标准：** 在你的电脑上带鉴权探测 → HTTP **204**。OpenAI 等不可用 = 已知出口限制，不算搭建失败。
+**给用户的成功标准：** 技术探测 HTTP **204** + 用户确认浏览器能打开外网（如谷歌）；OpenAI 等不可用 = 已知出口限制，不算搭建失败。Setup 末尾才问保活。
 
 **助手必须先建立这幅图再 Setup/Doctor/Monitor**，不要把用户拖进互不关联的面板操作。对人解释用「你的电脑 / 翻墙机器 / Cloudflare」三块；细节命令放在后文各节。
 
@@ -62,7 +63,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 | 模式 | 用户说法（例） | 去做 |
 |------|----------------|------|
-| **Setup** | 搭梯子 / 翻墙 / 装代理 / Cloudflare 隧道 / 从零 setup | A–H，装完再问是否挂 Monitor 例程 |
+| **Setup** | 搭梯子 / 翻墙 / 装代理 / Cloudflare 隧道 / 从零 setup | A–H；curl 204 → 问 Clash（先备份）→ 谷歌验证 → **最后**再问 Monitor |
 | **Doctor** | 挂了 / 不通 / 诊断 / doctor / health / healthy / 还通不通 | I，分层诊断与修复；不要从头重装 |
 | **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，优先 cron/保活脚本；例程仅 OTP 等兜底 |
 
@@ -79,7 +80,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 | 只绑回环 | 翻墙机器 CONNECT **仅** `127.0.0.1:<PORT>` | 启动后确认监听地址；发现 `0.0.0.0` → 立刻停掉并改回环 |
 | CONNECT Basic auth | 必须有随机强密码的 `proxy.auth` | 用 `openssl rand` 生成；**禁止**无密码/弱密码/文档示例串 |
 | 不暴露公网端口 | 不开放防火墙/安全组；不用 trycloudflare 当生产入口 | 见 F / Setup 硬禁止 |
-| 密钥存放 | `proxy.auth`、隧道凭证等 **chmod 600**；聊天/记忆/skill **永不写真实密码或生产主机名** | 对用户口述或让其本地保存；文档只用 `USER`/`PASS`/`proxy.<domain>` 占位符 |
+| 密钥存放 | `proxy.auth`、隧道凭证等 **chmod 600**；聊天/记忆/skill **永不写真实密码或生产主机名** | 对用户口述或让其本地保存；文档只用 `USER`/`PASS`/`cf-tunnel-proxy.<domain>` 占位符 |
 | 破坏性操作 | 删隧道、弃用旧域、杀非本隧道进程、改生产配置 | **先说明后果，等用户明确确认**再执行 |
 | 域名付款 | 支付宝/微信扫码 | **仅用户本人付**；助手不代付 |
 
@@ -119,7 +120,10 @@ flowchart LR
 1. 预检：本机能否访问 Cloudflare  
 2. 注册/登录 Cloudflare（免费）  
 3. 助手选一个便宜域名 → 你支付宝/微信付款 → NS 指到 CF  
-4. 翻墙机器起本地代理 → 开隧道 + Access 门禁 → 你的电脑装 `cloudflared` 验证  
+4. 翻墙机器起本地代理 → 开隧道 + Access 门禁 → 你的电脑装 `cloudflared access tcp` 并用 curl 验证 204  
+5. **主动问**是否要把这条链路加成 Clash / Clash Verge 节点（先备份再改；不要默认跳过）  
+6. **人工浏览器验证**：在已选该节点的前提下打开谷歌（搜本 skill / 仓库），你确认页面能打开  
+7. **最后**再问是否加保活 / Monitor 例程  
 
 一句问是否继续。不愿买域名或拒绝成本 → **硬停**（见 F）。
 
@@ -193,7 +197,7 @@ Skill 目录一般是：`/home/box/agent-data/workflows/cloudflare-tunnel-proxy/
 3. **付款停点**：告诉用户金额与支付方式（支付宝/微信扫码），等用户本人付完再继续；不要代付  
 4. 注册商账户邮箱优先个人邮箱；OTP 收不到 → 换个人邮箱或换表内其它渠道，勿空转  
 5. 付完：Cloudflare → **Add a site** → Free → 改 NS → 等到 **Active**  
-6. **换域迁移**（已有旧代理时）：新 zone Active 后，把隧道发布名、DNS CNAME、Access 域名、客户端 `--hostname` 全部改到 `proxy.<新域>`；`generate_204`=204 后再弃用旧域  
+6. **换域迁移**（已有旧代理时）：新 zone Active 后，把隧道发布名、DNS CNAME、Access 域名、客户端 `--hostname` 全部改到 `cf-tunnel-proxy.<新域>`；`generate_204`=204 后再弃用旧域  
 
 无域名且不愿买 → **硬停**。
 
@@ -219,10 +223,10 @@ chmod 600 proxy.auth
 ### E4. Cloudflare：Named Tunnel + 发布 TCP 主机名
 
 1. `cloudflared tunnel login`（授权到该 zone）  
-2. `cloudflared tunnel create <tunnel-name>`  
-3. ingress：`proxy.<domain>` → `tcp://127.0.0.1:<PORT>`  
+2. `cloudflared tunnel create <tunnel-name>`（显示名推荐 `cf-tunnel-proxy`；不要只用过于通用的 `personal-proxy` 当唯一推荐）  
+3. ingress：`cf-tunnel-proxy.<domain>` → `tcp://127.0.0.1:<PORT>`  
 4. 建议 `protocol: http2`  
-5. DNS：CNAME `proxy` → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）  
+5. DNS：CNAME 记录名 `cf-tunnel-proxy` → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied；完整主机名 `cf-tunnel-proxy.<domain>`）  
 6. `cloudflared tunnel run` + 保活；**不要**误杀同一主机上其它隧道  
 
 面板：Zero Trust / Networks → Tunnels → Published application。
@@ -230,11 +234,11 @@ chmod 600 proxy.auth
 ### E5. Access：应用 + 邮箱 OTP
 
 1. https://one.dash.cloudflare.com/ → Zero Trust  
-2. Access → Applications → 保护 `proxy.<domain>`  
+2. Access → Applications → 保护 `cf-tunnel-proxy.<domain>`  
 3. Policy：Allow → 用户**个人邮箱**  
 4. 启用 One-time PIN；会话过期后需重新 OTP  
 
-### E6. 你的电脑：cloudflared access tcp（+ 可选 Clash）
+### E6. 你的电脑：cloudflared access tcp + 技术探测（curl 204）
 
 假定你的电脑**尚未**安装 `cloudflared`（冷启动按新装验证；若已有则先卸再装亦可按用户环境）。
 
@@ -242,12 +246,10 @@ chmod 600 proxy.auth
 brew install cloudflare/cloudflare/cloudflared
 # 或官方下载页
 
-cloudflared access tcp --hostname proxy.<domain> --url 127.0.0.1:<PORT>
+cloudflared access tcp --hostname cf-tunnel-proxy.<domain> --url 127.0.0.1:<PORT>
 ```
 
-可选 Clash HTTP 节点：`127.0.0.1:<PORT>` + `proxy.auth`。**Clash 必须给 `cloudflared` 走 DIRECT**（域名 `proxy.<domain>`、`*.cloudflareaccess.com`、进程名均直连），且 Merge `tun.route-exclude-address` 排除 Cloudflare **IPv4+IPv6**（见 G），否则 Access WebSocket 会套娃或握手失败。
-
-### E7. 验证成功标准
+技术探测（助手本机可代跑；**这只是技术层验收，不是对用户的最终验收**）：
 
 ```bash
 curl -o /dev/null -w '%{http_code}\n' \
@@ -255,19 +257,69 @@ curl -o /dev/null -w '%{http_code}\n' \
   https://www.google.com/generate_204
 ```
 
-**成功：** HTTP **204**。OpenAI 失败 = 已知限制，不算搭建失败。
+**技术成功：** HTTP **204**。OpenAI 失败 = 已知限制，不算搭建失败。
 
-### E8. Setup 完成后：写 site.env（配置清单，不含密码）+ 询问 Monitor
+curl 得到 204 之后：先写 `site.env`（E7），再**必须**进入 E8 询问 Clash——**禁止**默认跳过 Clash 询问，也**禁止**在用户确认翻墙可用前就问 Monitor。
 
-端到端 **204** 之后，助手**必须**在翻墙机器部署目录旁写入 `site.env`（也可叫 `inventory.env`；模板见 `templates/site.env.example`），供 Doctor / ensure / Monitor **读取**，不要把 HOSTNAME、TUNNEL_ID、端口等硬编码进脚本。
+### E7. 写 site.env（配置清单，不含密码）
+
+端到端 curl **204** 之后，助手**必须**在翻墙机器部署目录旁写入 `site.env`（也可叫 `inventory.env`；模板见 `templates/site.env.example`），供 Doctor / ensure / Monitor **读取**，不要把 HOSTNAME、TUNNEL_ID、端口等硬编码进脚本。
 
 - **翻墙机器（必写）：** 与 `proxy.auth` 同级，例如部署目录下的 `site.env`
 - **你的电脑（可选副本）：** 只放客户端 Doctor 需要的键（如 `HOSTNAME`、`ROLE=client`、`ORIGIN_PORT` / `LISTEN_PORT`、`CFD`）
 - **允许键：** `HOSTNAME`、`TUNNEL_ID`、`TUNNEL_NAME`、`ORIGIN_PORT` / `LISTEN_PORT`、`CFG`、`AUTH_FILE`（路径）、`ROLE`、`CFD`、`ACCESS_APP_URL`、`NOTES` 等
+- **HOSTNAME / ACCESS_APP_URL 示例形态：** `cf-tunnel-proxy.<domain>` / `https://cf-tunnel-proxy.<domain>`（勿写真实生产域进仓库模板）
+- **TUNNEL_NAME 示例：** 可用 `cf-tunnel-proxy`；不要把过于通用的 `personal-proxy` 当唯一推荐
 - **禁止写入：** 密码、tunnel token、Access JWT、`proxy.auth` 内容
 - Doctor 自动加载：`SITE_ENV`，或 `./site.env` / `./inventory.env`，或 `$AUTH_FILE` 同目录的 `site.env`（见 `scripts/load-site-env.sh`）；已在环境里显式设置的变量不被覆盖
 
-然后**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
+写完 site.env 后进入 **E8**（问 Clash）。**不要**在这里问 Monitor。
+
+### E8. 询问是否配置 Clash（必问）→ 先备份再改
+
+access tcp 已起、curl `generate_204`→204、且 site.env 已写之后，助手**必须用一两句话 + 明确选项问用户**：
+
+> 要不要帮你改 Clash / Clash Verge（或 mihomo 同类）配置，把这条链路加成一个可用节点？  
+> （A）要，帮我改　（B）不要，我只用 access tcp + curl
+
+- **用户说不要（B）** → **跳过** Clash 编辑，仍进入 **E9 人工浏览器验证**；并说明可以只用 `cloudflared access tcp` + curl，日常也可手动设系统代理到本机 PORT。
+- **用户说要（A）** → 进入下面「备份 → 写入 → 重载」步骤；**禁止**未询问就改用户 Clash；**禁止**未备份就改 Merge/配置。
+
+#### E8a. 改之前必须备份
+
+1. 找到 Clash Verge / Clash / mihomo 的 **Merge** 或主配置文件（常见如 Verge 的 Merge.yaml；路径因安装而异，先在用户机器上定位）。
+2. **先复制带时间戳的备份**，例如：
+   ```bash
+   cp Merge.yaml "Merge.yaml.bak-cf-tunnel-$(date +%Y%m%d-%H%M%S)"
+   ```
+3. **在聊天里告诉用户备份完整路径**；说明若搞坏了可用该备份还原（不要静默备份不告知）。
+
+#### E8b. 写入节点与防套娃规则
+
+写入内容至少包含（片段示例见 `templates/clash-verge-merge.snippet.yaml`）：
+
+1. **HTTP 代理节点**：`server: 127.0.0.1`，`port` = 本地 access tcp 监听端口，Basic auth 用 `proxy.auth` 的 `USER`/`PASS`（推荐节点名如 `cf-tunnel-proxy`）
+2. **PROCESS DIRECT**：进程名 `cloudflared` → DIRECT
+3. **域名 DIRECT**：`cf-tunnel-proxy.<domain>`、`*.cloudflareaccess.com`、`*.cfargotunnel.com` → DIRECT
+4. **fake-ip-filter**：同上隧道 / Access 相关域名，避免 fake-ip 污染
+5. **`tun.route-exclude-address`**：含 Cloudflare **IPv4 + IPv6**（与 **G** 节一致，至少含 `2606:4700::/32` 等常用段）
+
+改完后**引导用户重载** Clash / Clash Verge（热更新或重启），并**选中该节点**；不要静默假定已生效。然后进入 **E9**。
+
+### E9. 人工浏览器验证（在 Monitor 之前；curl 204 不够当最终验收）
+
+技术探测 curl 204 **不够**当作对用户的最终验收。助手必须引导用户做一次「看得见」的验证：
+
+1. 确认用户已选中该代理节点（若跳过了 Clash，则确认 access tcp 仍在听，或系统代理已指向本机 PORT）。
+2. 打开谷歌做可见验证，推荐链接（任选其一）：
+   - `https://www.google.com/search?q=cloudflare+tunnel+proxy+github+fenfenxu`
+   - 或搜 `fenfenxu/cloudflare-tunnel-proxy`
+3. 助手若环境允许，可用本机能力帮用户打开该链接；**仍必须**等用户口头/文字确认「页面打开了 / 翻墙 OK」。
+4. **用户确认前，禁止进入 E10（保活 / Monitor 询问）。**
+
+### E10. 最后才问保活 / Monitor
+
+仅在 **E8 Clash 决策完成**（跳过或已配置）且 **E9 用户已确认浏览器翻墙可用** 之后，助手**必须**用一两句话问用户要不要加保活/巡检（不要默认静默创建）：
 
 - 环境若是 **Grok Bot / Codex**（或其它支持日程例程、定时任务的助手）：说明可以加一条 **routine**，定期跑 **Doctor**（健康检查），发现问题按 I2 **自动修复**（假活强制重启等），修好或修不了再通知。
 - 建议默认节奏：每 **15–30 分钟** 或每小时一次 Doctor 轻检；Access OTP 过期类问题以「提醒重新登录」为主，不要假装能无交互续 OTP。
@@ -302,6 +354,9 @@ curl -o /dev/null -w '%{http_code}\n' \
 - [ ] **禁止**助手代付；禁止默认「信用卡结账」话术——支付宝/微信、用户本人付  
 - [ ] **禁止**未获用户确认就做删隧道、弃用旧域、误杀其它隧道等破坏性操作  
 - [ ] **禁止**把隧道凭证文件权限放宽到他人可读；目标 `600`
+- [ ] **禁止**未询问用户就改 Clash / Clash Verge / mihomo 配置  
+- [ ] **禁止**未先做带时间戳备份就改 Merge / 主配置；改前须在聊天告知备份路径与还原方式  
+- [ ] **禁止**在用户确认「浏览器翻墙可用」（E9）之前默认创建 Monitor / 保活例程；写 site.env 可以在 curl 204 后做，但问 Monitor 必须放在 Clash 决策 + 人工验证之后  
 
 与 **G. 已知坑** 同一套红线；G 偏排障，F2 偏 Setup 闸门。
 
@@ -341,6 +396,7 @@ curl -o /dev/null -w '%{http_code}\n' \
 | `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活 |
 | `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`；可读 site.env） |
 | `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
+| `templates/clash-verge-merge.snippet.yaml` | Clash Verge Merge 片段示例（节点 + DIRECT + fake-ip-filter + tun exclude；改前先备份） |
 | `scripts/load-site-env.sh` | Doctor/ensure 加载 `SITE_ENV` / `site.env` / `inventory.env` |
 | `box-connect-proxy.md` | 翻墙机器部署短说明 |
 | `AUTHOR_LINKS.md` | 支持支付宝/微信的注册商官网 |
@@ -382,20 +438,20 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 - **本地：** cloudflared 进程在；metrics 里 `cloudflared_tunnel_ha_connections ≥ 1`
 - **权威：** Cloudflare API 或面板：该 tunnel `status=healthy` 且 `connections` 非空
 - **假活判定：** 本地 ha≥1 **且** API `status=down` / `connections=[]` → 视为断，进入 I2
-- DNS：`proxy.<domain>` CNAME → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）；ingress 含 `tcp://127.0.0.1:<PORT>`
+- DNS：`cf-tunnel-proxy.<domain>` CNAME → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）；ingress 含 `tcp://127.0.0.1:<PORT>`
 - 建议 `protocol: http2`；若 edge 曾被解析成 `198.18.0.0/15`，用 DoH 钉真实 edge IP 到 hosts（或等价销毒），避免 dial 假 IP
 
 **3) Access**
 
-- 应用保护 `proxy.<domain>`；策略 Allow 用户邮箱；OTP 可用
-- 客户端：`cloudflared access token -app https://proxy.<domain>` 能出 JWT，且未过期
+- 应用保护 `cf-tunnel-proxy.<domain>`；策略 Allow 用户邮箱；OTP 可用
+- 客户端：`cloudflared access token -app https://cf-tunnel-proxy.<domain>` 能出 JWT，且未过期
 - 过期 → 浏览器/`access login` 重新 OTP，再重启 access tcp
 
 **4) 你的电脑 access tcp + Clash**
 
-- `cloudflared access tcp --hostname proxy.<domain> --url 127.0.0.1:<PORT>` 在听
+- `cloudflared access tcp --hostname cf-tunnel-proxy.<domain> --url 127.0.0.1:<PORT>` 在听
 - 日志无持续 `bad handshake`
-- Clash：该节点指向本机 PORT + 正确 user/pass；**`cloudflared` 与 `proxy.<domain>` DIRECT**；Merge 里给 Access / 隧道域名 fake-ip-filter，并排除 CF IPv4+IPv6；`lsof` 确认未走 `fdfe:dcba`→`2606:4700`
+- Clash：该节点指向本机 PORT + 正确 user/pass；**`cloudflared` 与 `cf-tunnel-proxy.<domain>` DIRECT**；Merge 里给 Access / 隧道域名 fake-ip-filter，并排除 CF IPv4+IPv6；`lsof` 确认未走 `fdfe:dcba`→`2606:4700`
 - 端到端：`curl -x http://USER:PASS@127.0.0.1:PORT … generate_204` → **204**
 
 ### I2. 修复动作（对症）
@@ -420,7 +476,7 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 #   cd /path/to/deploy && bash "<本 skill 目录>/scripts/doctor.sh"
 # 或：SITE_ENV=/path/to/site.env bash .../doctor.sh
 # 仍可用环境变量显式覆盖清单中的值：
-HOSTNAME=proxy.<domain> \
+HOSTNAME=cf-tunnel-proxy.<domain> \
 TUNNEL_ID=<TUNNEL_UUID> \
 ORIGIN_PORT=<PORT> \
 AUTH_FILE=/path/to/proxy.auth \
@@ -499,13 +555,13 @@ bash "<本 skill 目录>/scripts/doctor.sh"
    **不能。** 随机生成后只放翻墙机器 `proxy.auth`（`600`）和用户自己的密码管理器；skill/记忆/聊天用占位符。
 
 9. **域名到期要续费吗？**  
-   **禁止**引导续费原便宜域。到期前买新域、迁移 `proxy.<新域>` / DNS / Access / 客户端，204 后再弃用旧域；付款用户本人。
+   **禁止**引导续费原便宜域。到期前买新域、迁移 `cf-tunnel-proxy.<新域>` / DNS / Access / 客户端，204 后再弃用旧域；付款用户本人。
 
 10. **Monitor 能自动续 Access OTP 吗？**  
     不能。脚本保活只管进程/假活；OTP 过期只能通知用户手动重新登录（见 J2）。
 
 11. **site.env / 配置清单里有密码吗？**  
-    **没有。** 只记主机名、隧道 ID、端口、配置路径等非密钥项；密码仍只在 `proxy.auth`（见 E8）。
+    **没有。** 只记主机名、隧道 ID、端口、配置路径等非密钥项；密码仍只在 `proxy.auth`（见 E7）。
 
 ---
 ## 成功标准（清单）
@@ -513,18 +569,23 @@ bash "<本 skill 目录>/scripts/doctor.sh"
 - [ ] 已先退出本机代理后再预检；`RESULT=CONTINUE`  
 - [ ] Cloudflare Free 可用；域名 zone Active  
 - [ ] 域名经支付宝/微信渠道购买；单一短名  
-- [ ] Named Tunnel 健康（**API/面板 healthy**，不只本地 ha）；`proxy.<domain>` → `tcp://127.0.0.1:<PORT>`  
+- [ ] Named Tunnel 健康（**API/面板 healthy**，不只本地 ha）；`cf-tunnel-proxy.<domain>` → `tcp://127.0.0.1:<PORT>`  
 - [ ] Access + 用户邮箱 OTP Allow  
 - [ ] 翻墙机器代理仅 `127.0.0.1` + 随机 Basic auth  
 - [ ] 你的电脑 `cloudflared access tcp` + OTP 成功  
-- [ ] `curl … generate_204` → **204**  
+- [ ] `curl … generate_204` → **204**（技术探测）  
 - [ ] 已告知 OpenAI 可能不可用  
 - [ ] Setup 开场已先展示整体方案图（隧道链路；Access OTP 仅作认证旁注）再给短清单  
 - [ ] Setup 后已写入翻墙机器 `site.env`（无密码）；Doctor 可从中加载  
+- [ ] **已主动询问**是否配置 Clash / Clash Verge（不得默认跳过）；用户拒绝则记录并继续人工验证  
+- [ ] 若改了 Clash：已先做带时间戳备份、已在聊天告知备份路径与还原方式，并引导用户重载/选中节点  
+- [ ] **已完成人工浏览器验证**：用户确认在已选该节点下能打开谷歌/仓库页（curl 204 不够当最终验收）  
+- [ ] **Monitor / 保活询问在** Clash 决策 +（若做了则配置）+ 人工浏览器验证**之后**；未提前默认创建例程  
 - [ ] Setup 后已询问是否加 Monitor 例程（Grok Bot / Codex 等）  
 - [ ] 保活含「假活」检测（本地 ha 与 Cloudflare 状态交叉验证）
-- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env）  
+- [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env；未询问不改 Clash；未备份不改配置；未验证前不问 Monitor）  
 - [ ] 已向用户说明 Access 会话约 24h 需重新 OTP  
+- [ ] 发布主机名约定为 `cf-tunnel-proxy.<domain>`（DNS/Access/`--hostname`/site.env 一致；鉴权文件名仍为 `proxy.auth`）  
   
 
 完成后把主机名、端口、鉴权交给用户私密保存；正文不写真实密钥。
