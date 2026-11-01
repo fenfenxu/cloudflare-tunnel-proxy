@@ -21,21 +21,37 @@ description: >-
 
 英文技术环境变量名（如 `AUTH_FILE`、`ORIGIN_PORT`、`TUNNEL_ID`）可保留；**RESULT 键名与对人说明**用白话：`access`、`cf`、`tunnel_ha`、`local_proxy`、`e2e`、`clash_ipv6`。
 
-Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_proxy` / 隧道进程；你的电脑上查 Access / access tcp / Clash。在你的电脑上跑 Doctor 却去判翻墙机器上的隧道进程 → 出现 FAIL 多半是**角色读错**，不是链路一定挂了（设 `ROLE=client` 或 `ROLE=host` 见 I3）。
+Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_proxy` / 隧道进程；你的电脑上查 Access / access tcp / Clash。在你的电脑上跑 Doctor 却去判翻墙机器上的隧道进程 → 出现 FAIL 多半是**角色读错**，不是链路一定挂了（设 `ROLE=client` 或 `ROLE=host` 见 I3）。对用户复述时用「你的电脑 / 翻墙机器」，不要说 Origin。
 
 ---
 
-用 **免费 Cloudflare 账户 + 已接入 Cloudflare 的域名 + 一台可常驻的 **翻墙机器**，做一条个人代理：
+## 这套方案是什么（先读再动手）
+
+本 skill 描述的是一条**个人翻墙 / 代理产品**，不是零散命令清单。整体组合是：
+
+**Cloudflare（域名 + Access + 命名隧道） + 一台能访问外网的翻墙机器 + 你的电脑上的客户端。**
+
+角色分工：
+
+1. **翻墙机器**：常开；只在 `127.0.0.1` 跑 CONNECT 代理；用 Cloudflare 命名隧道把 `proxy.<域名>` 指到这个本机端口；出口走这台机器的外网。
+2. **Cloudflare**：免费账户 + **已接入的自有域名**（硬前提；`trycloudflare` / 无域名 = 不做）；Access 用邮箱 OTP 挡住陌生人；隧道负责把你的电脑连到翻墙机器，而不用把代理端口暴露到公网。
+3. **你的电脑**：`cloudflared access tcp`（可选 Clash）连 `proxy.<域名>`；日常流量经这条链路出去。
+
+链路（记熟，排障按此分层）：
 
 ```
-你的电脑上 cloudflared access tcp
+你的电脑（Clash / cloudflared access tcp）
   → Cloudflare Access（邮箱 OTP）
-  → Named Tunnel
+  → Cloudflare 命名隧道
   → 翻墙机器上 127.0.0.1 CONNECT 代理
-  → 隧道所在出口
+  → 翻墙机器出口访问外网
 ```
 
-**硬前提：** 必须有 Cloudflare 上的 zone（域名）。`*.trycloudflare.com` / 无域名 / 无 Access TCP 主机名 = **NO-GO**。
+**给用户的成功标准：** 在你的电脑上带鉴权探测 → HTTP **204**。OpenAI 等不可用 = 已知出口限制，不算搭建失败。
+
+**助手必须先建立这幅图再 Setup/Doctor/Monitor**，不要把用户拖进互不关联的面板操作。对人解释用「你的电脑 / 翻墙机器 / Cloudflare」三块；细节命令放在后文各节。
+
+**硬前提：** Cloudflare 上要有 zone（域名）。`*.trycloudflare.com` / 无域名 / 无 Access TCP 主机名 = **NO-GO**。
 
 助手专属细节（某人的邮箱、生产主机名、现成密码）**不要**写进本 skill；一律用占位符。把用户当普通新用户：不要假设已有 CF/域名/`cloudflared`/现成隧道。
 
@@ -50,8 +66,6 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 | **Monitor** | 保活 / 监控 / monitor / 定时检查 / 自动修 | J，优先 cron/保活脚本；例程仅 OTP 等兜底 |
 
 不确定时：已有链路且在抱怨不通 → **Doctor**；否则 → **Setup**。
-
----
 
 ## A. Setup · 开场（短清单，禁止长文堆砌）
 
