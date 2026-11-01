@@ -13,7 +13,7 @@ _ctp_site_env_set_if_empty() {
   [[ -n "$v" ]] || return 0
   cur="${!k:-}"
   # do not override explicit env — except bare shell HOSTNAME (machine name)
-  # which would block loading proxy.<domain> from site.env on typical Linux
+  # which would block loading cf-tunnel-proxy.<domain> from site.env on typical Linux
   if [[ -n "$cur" ]]; then
     if [[ "$k" == "HOSTNAME" ]]; then
       sys="$(hostname 2>/dev/null || true)"

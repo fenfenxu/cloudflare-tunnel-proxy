@@ -1,7 +1,7 @@
 # Cloudflare Tunnel Proxy 诊断与修复清单
 
 用语同 skill：**你的电脑** = Clash / access tcp 客户端；**翻墙机器** = CONNECT + 命名隧道所在机。RESULT 键：`access` / `cf` / `tunnel_ha` / `local_proxy` / `e2e` / `clash_ipv6`。
-配合 skill **I 节**。可执行轻检：`scripts/doctor.sh`（见 I3）。占位符：`proxy.<domain>`、`<PORT>`、`USER:PASS`、`<TUNNEL_UUID>`。
+配合 skill **I 节**。可执行轻检：`scripts/doctor.sh`（见 I3）。占位符：`cf-tunnel-proxy.<domain>`、`<PORT>`、`USER:PASS`、`<TUNNEL_UUID>`。
 
 ## 1. 翻墙机器 CONNECT（local_proxy）
 
@@ -28,19 +28,19 @@ curl -fsS "http://127.0.0.1:<METRICS>/metrics" | awk '/^cloudflared_tunnel_ha_co
 
 ## 3. DNS / ingress
 
-- CNAME `proxy.<domain>` → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）
-- ingress：`proxy.<domain>` → `tcp://127.0.0.1:<PORT>`
+- CNAME `cf-tunnel-proxy.<domain>` → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）
+- ingress：`cf-tunnel-proxy.<domain>` → `tcp://127.0.0.1:<PORT>`
 - 建议 `protocol: http2`；edge 勿解析成 `198.18.0.0/15`
 
 ## 4. Access + 你的电脑
 
 ```bash
-cloudflared access token -app https://proxy.<domain>   # 有 JWT
+cloudflared access token -app https://cf-tunnel-proxy.<domain>   # 有 JWT
 # 日志若持续 websocket: bad handshake → 先排除假活与 Clash 套娃
 launchctl kickstart -k "gui/$(id -u)/<access-tcp-label>"  # macOS 保活时
 ```
 
-Clash：节点 = 本机 PORT + Basic auth；`cloudflared` 与 `proxy.<domain>` DIRECT。
+Clash：节点 = 本机 PORT + Basic auth；`cloudflared` 与 `cf-tunnel-proxy.<domain>` DIRECT。
 
 ## 5. 端到端
 
