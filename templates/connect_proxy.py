@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Minimal HTTP CONNECT proxy bound to 127.0.0.1 only.
+
+FALLBACK only: Setup defaults to gost (`gost -L=http://USER:PASS@127.0.0.1:PORT`).
+Use this when gost cannot be installed or PROXY_BACKEND=python.
 Optional Basic auth via PROXY_USER / PROXY_PASS or --auth user:pass.
 """
 from __future__ import annotations

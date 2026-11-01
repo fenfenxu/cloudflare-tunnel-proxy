@@ -6,7 +6,7 @@
 ## 1. 翻墙机器 CONNECT（local_proxy）
 
 ```bash
-ss -ltnp | rg "<PORT>|connect_proxy"
+ss -ltnp | rg "<PORT>|gost|connect_proxy"
 curl -o /dev/null -w '%{http_code}\n' -x "http://USER:PASS@127.0.0.1:<PORT>" \
   https://www.google.com/generate_204
 # expect 204
