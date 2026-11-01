@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Ensure local CONNECT proxy is up. Safe to cron / call from shell rc.
+# Ensure local CONNECT proxy is up (gost preferred via start.sh; python fallback).
+# Safe to cron / call from shell rc. PROXY_BACKEND=auto|gost|python
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 PIDFILE="$DIR/run/proxy.pid"

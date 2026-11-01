@@ -35,7 +35,7 @@ Doctor 要在**对应角色的机器**上解读：翻墙机器上查 `local_prox
 
 角色分工：
 
-1. **翻墙机器**：常开；只在 `127.0.0.1` 跑 CONNECT 代理；用 Cloudflare 命名隧道把 `cf-tunnel-proxy.<域名>` 指到这个本机端口；出口走这台机器的外网。
+1. **翻墙机器**：常开；只在 `127.0.0.1` 跑 CONNECT 代理（**默认 gost**，Python 兜底）；用 Cloudflare 命名隧道把 `cf-tunnel-proxy.<域名>` 指到这个本机端口；出口走这台机器的外网。
 2. **Cloudflare**：免费账户 + **已接入的自有域名**（硬前提；`trycloudflare` / 无域名 = 不做）；Access 用邮箱 OTP 挡住陌生人；隧道负责把你的电脑连到翻墙机器，而不用把代理端口暴露到公网。
 3. **你的电脑**：`cloudflared access tcp`（可选 Clash）连 `cf-tunnel-proxy.<域名>`；日常流量经这条链路出去。
 
@@ -201,13 +201,29 @@ Skill 目录一般是：`/home/box/agent-data/workflows/cloudflare-tunnel-proxy/
 
 无域名且不愿买 → **硬停**。
 
-### E3. 翻墙机器：本地 CONNECT 代理（只绑回环）
+### E3. 翻墙机器：本地 CONNECT 代理（只绑回环；**默认 gost**）
 
-在隧道所在的 **翻墙机器**上部署（详见 `box-connect-proxy.md` 与 `templates/`）：
+在隧道所在的 **翻墙机器**上部署（详见 `box-connect-proxy.md` 与 `templates/`）。
+
+**默认实现：gost**（少依赖、更稳）。等价启动形态：
+
+```bash
+gost -L=http://USER:PASS@127.0.0.1:PORT
+```
+
+只绑回环 + 随机 Basic，与现有安全要求一致。客户端 Clash、Access、命名隧道**不变**。
+
+**Python `connect_proxy.py` 仅作兜底**：装不上 gost、PATH 没有 gost、或用户明确要求 `PROXY_BACKEND=python` 时才用。
+
+步骤（**必须先装 gost，再起代理**；不能假定翻墙机器已有 gost）：
 
 1. 目录自定（示例：`/workspace/network/cloudflare-tunnel-proxy/`）  
-2. 复制 `templates/connect_proxy.py`、`start.sh`、`ensure.sh`、`stop.sh`  
-3. 生成随机 Basic 鉴权（**不要**用文档示例密码）：
+2. 复制 `templates/start.sh`、`ensure.sh`、`stop.sh`、`install-gost.sh`，以及兜底用的 `connect_proxy.py`  
+3. **安装 gost（必做，写进 Setup 话术）：**  
+   - 跑 `./install-gost.sh`（默认装到 `~/.local/bin/gost`）：优先拉 [go-gost/gost Releases](https://github.com/go-gost/gost/releases) 官方二进制 → 校验非空并可执行 → `gost -V`（或 `-h`）通过；其次 `go install github.com/go-gost/gost/cmd/gost@latest`；macOS 可再试 brew。  
+   - 写入 PATH：`export PATH="$HOME/.local/bin:$PATH"`（写入该机 shell rc，或把 `gost` 放到与 `cloudflared` 同级的固定目录并保证 PATH）。  
+   - **校验失败 / 装不上** → 才允许 `PROXY_BACKEND=python` 走 `connect_proxy.py`，并明确告知用户「gost 未装上，已用 Python 兜底」。  
+4. 生成随机 Basic 鉴权（**不要**用文档示例密码）：
 
 ```bash
 umask 077
@@ -217,8 +233,8 @@ printf '%s:%s\n' "$USER" "$PASS" > proxy.auth
 chmod 600 proxy.auth
 ```
 
-4. `./start.sh` 或 `./ensure.sh`；只监听 `127.0.0.1:<PORT>`（默认 `17897`），**禁止** `0.0.0.0`  
-5. 把 `user:pass` 和端口告诉用户（私密保存）
+5. **装完 gost 并通过校验后**再 `./start.sh` / `./ensure.sh`（等价：`gost -L=http://USER:PASS@127.0.0.1:PORT`）。`PROXY_BACKEND=auto`：有 gost 用 gost；仅装失败或用户强制时用 `python`。只监听 `127.0.0.1:<PORT>`（默认 `17897`），**禁止** `0.0.0.0`  
+6. 把 `user:pass` 和端口告诉用户（私密保存）；聊天里**不要**回显密码  
 
 ### E4. Cloudflare：Named Tunnel + 发布 TCP 主机名
 
@@ -401,6 +417,8 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 助手在 Setup **全程自检**，下列任一出现 → 停下改正，不要带着错误继续：
 
 - [ ] **禁止**无密码、弱密码、或使用文档/模板里的示例密码；必须 `openssl rand`（或同等）生成随机串  
+- [ ] **禁止**在 gost 可装时静默改用 Python；默认 `PROXY_BACKEND=auto`/`gost`，仅装不上 gost 或用户强制时才 Python  
+- [ ] **禁止**假定翻墙机器已有 gost：E3 必须执行安装（官方二进制 / go install / brew）+ PATH + `gost -V` 校验，通过后再启动监听  
 - [ ] **禁止** CONNECT / 本地代理监听 `0.0.0.0` 或其它非回环地址；只允许 `127.0.0.1`  
 - [ ] **禁止** trycloudflare-only / 无自有域名方案；无 zone = NO-GO  
 - [ ] **禁止**把 `proxy.auth`、真实密码、生产主机名、隧道凭证写进 skill、README、聊天记录或记忆；只给用户私密保存
@@ -460,8 +478,9 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 | `scripts/doctor.sh` | Doctor 轻检编排：分层跑完打印 `status=` + `RESULT` 行 |
 | `scripts/doctor-*.sh` | 分层探针 RESULT：`access` / `cf` / `tunnel_ha` / `local_proxy` / `e2e` / `clash_ipv6` |
 | `scripts/diagnose-repair.md` | Doctor：挂了时分层诊断与修复清单（给人看） |
-| `templates/connect_proxy.py` | 翻墙机器 CONNECT 代理 |
-| `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活 |
+| `templates/install-gost.sh` | 翻墙机器：安装 gost（默认 CONNECT 实现） |
+| `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活（默认 gost；`PROXY_BACKEND=python` 走兜底） |
+| `templates/connect_proxy.py` | 翻墙机器 CONNECT **Python 兜底**（gost 不可用时） |
 | `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`；可读 site.env） |
 | `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
 | `templates/clash-verge-merge.snippet.yaml` | Clash Verge Merge 片段示例（节点 + DIRECT + fake-ip-filter + tun exclude；改前先备份） |
@@ -501,7 +520,7 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 
 - 进程在听 `127.0.0.1:<PORT>`（不是 `0.0.0.0`）
 - 翻墙机器上带鉴权：`curl -x http://USER:PASS@127.0.0.1:PORT -o /dev/null -w '%{http_code}\n' https://www.google.com/generate_204` → **204**
-- 失败 → 先修 `connect_proxy` / `ensure.sh`，别动隧道
+- 失败 → 先修 gost / `ensure.sh`（或 Python 兜底进程），别动隧道
 
 **2) Named Tunnel（必须双看）**
 
@@ -528,7 +547,7 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 
 | 判定 | 动作 |
 |------|------|
-| CONNECT 挂了 | `ensure.sh` / 重启 `connect_proxy`；确认只绑回环 + auth |
+| CONNECT 挂了 | `ensure.sh` / 重启 gost（或 `PROXY_BACKEND=python` 兜底）；确认只绑回环 + auth |
 | **隧道假活** 或 API down | **杀掉**该 named tunnel 的 cloudflared 进程，让保活包装拉起；等 API 变 `healthy` 且 connections≥1；**不要**只 `ensure` 看本地 ha（假活时 ha 仍可能 ≥1） |
 | edge / fake-ip | 重跑 edge pin（DoH→hosts）；确认未再解析到 `198.18.0.0/15` |
 | Access token 过期 | 重新 OTP；更新 token 文件后重启 access tcp |
@@ -676,7 +695,7 @@ else:
 - [ ] 域名经支付宝/微信渠道购买；单一短名  
 - [ ] Named Tunnel 健康（**API/面板 healthy**，不只本地 ha）；`cf-tunnel-proxy.<domain>` → `tcp://127.0.0.1:<PORT>`  
 - [ ] Access + 用户邮箱 OTP Allow  
-- [ ] 翻墙机器代理仅 `127.0.0.1` + 随机 Basic auth  
+- [ ] 翻墙机器已**安装并校验** gost（或已记录 Python 兜底原因）；代理仅 `127.0.0.1` + 随机 Basic auth  
 - [ ] 你的电脑 `cloudflared access tcp` + OTP 成功  
 - [ ] macOS 若装了保活：LaunchAgent 为 **KeepAlive**（非仅 StartInterval）；已验证杀进程后数秒内自拉起  
 - [ ] `curl … generate_204` → **204**（技术探测）  
