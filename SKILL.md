@@ -455,7 +455,7 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 | Clash TUN fake-ip `198.18.0.0/15` | 同上；翻墙机器侧 edge 解析成 fake-ip 会导致 `:7844` dial 超时 |
 | Clash 未 DIRECT `cloudflared` | access tcp 失败/极慢 / `websocket: bad handshake` |
 | Clash TUN 未排除 Cloudflare **IPv6**（仅排除了 104/172 等 IPv4） | `cloudflared` 经 utun 源地址 `fdfe:dcba:9876::1` 连 `2606:4700::` → `websocket: bad handshake`；IPv4 route-exclude 仍可能「DNS/路由看起来正常」。Merge `tun.route-exclude-address` 须含 `2606:4700::/32`（及常用 CF IPv6：`2803:f800::/32`、`2400:cb00::/32`、`2405:8100::/32`、`2405:b500::/32`、`2a06:98c0::/29`）。Doctor：`lsof -nP -p <pid>` 看出站是否走 TUN IPv6 |
-| **隧道假活（zombie）** | 本机 `ha_connections≥1`，但 Cloudflare API `status=down` / `connections=[]`；Access 报 `websocket: bad handshake`。**只看本地指标会漏**；见 I |
+| **隧道假活（zombie）** | 本机 `ha_connections≥1`，但 Cloudflare API `status=down` / `connections=[]`；Access 报 `websocket: bad handshake`。**交叉验证**：本地 ha 与 CF connectors；`tunnel info` 失败 ≠ connectors=0（不可读勿当 zombie）。修复：TERM→KILL→UP_CMD→等到 connectors≥1（再 e2e 204）；**不要**只 ensure 看本地 ha。假活判定与自愈只在翻墙机器 `ROLE=host`。见 I / `ensure-tunnel.sh` |
 | Access OTP / app token 过期 | 默认约 24h；Setup 应已引导 7 天（最长约一个月）。过期后重新 `cloudflared access login` 或浏览器 OTP，再重启 access tcp；Monitor 不能自动续 |
 | 临时邮箱收不到注册商 OTP | 优先个人邮箱；换渠道或改邮箱 |
 | 默认信用卡结账文案 | **禁止**；支付宝/微信扫码、本人付 |
@@ -481,7 +481,8 @@ access tcp 已起、curl `generate_204`→204、且 site.env 已写之后：
 | `templates/install-gost.sh` | 翻墙机器：安装 gost（默认 CONNECT 实现） |
 | `templates/start.sh` / `ensure.sh` / `stop.sh` | 启停保活（默认 gost；`PROXY_BACKEND=python` 走兜底） |
 | `templates/connect_proxy.py` | 翻墙机器 CONNECT **Python 兜底**（gost 不可用时） |
-| `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；可配 `PIN_CMD`/`UP_CMD`；可读 site.env） |
+| `templates/ensure-tunnel.sh` | 隧道保活样例（本地 ha + CF connectors 交叉验证假活；info 不可读不动作；TERM→KILL→UP_CMD→heal 轮询；可读 site.env） |
+| `templates/monitor-tick.sh.example` | 翻墙机器 tick 样例（ensure + ensure-tunnel；需 export `UP_CMD`；无生产路径硬编码） |
 | `templates/site.env.example` | Setup 后站点配置清单模板（无密码；翻墙机器必写，你的电脑可选副本） |
 | `templates/clash-verge-merge.snippet.yaml` | Clash Verge Merge 片段示例（节点 + DIRECT + fake-ip-filter + tun exclude；改前先备份） |
 | `templates/run-access-tcp.sh` | 你的电脑：前台 `exec` cloudflared access tcp（给 LaunchAgent KeepAlive 用） |
@@ -526,7 +527,8 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 
 - **本地：** cloudflared 进程在；metrics 里 `cloudflared_tunnel_ha_connections ≥ 1`
 - **权威：** Cloudflare API 或面板：该 tunnel `status=healthy` 且 `connections` 非空
-- **假活判定：** 本地 ha≥1 **且** API `status=down` / `connections=[]` → 视为断，进入 I2
+- **假活判定：** 本地 ha 可读且 ha≥1 **且** CF connectors **可读**且 <1（或 API `status=down` / `connections=[]`）→ 视为断，进入 I2
+- **硬规则：** `tunnel info` 非 0 退出或缺少 `NAME:`/`ID:` 头 = **不可读**，不是 connectors=0；不可读时不要判 zombie、不要因此 hard-down 客户端 Doctor
 - DNS：`cf-tunnel-proxy.<domain>` CNAME → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）；ingress 含 `tcp://127.0.0.1:<PORT>`
 - 建议 `protocol: http2`；若 edge 曾被解析成 `198.18.0.0/15`，用 DoH 钉真实 edge IP 到 hosts（或等价销毒），避免 dial 假 IP
 
@@ -548,7 +550,7 @@ Clash / curl → 你的电脑 127.0.0.1:PORT（access tcp 监听）
 | 判定 | 动作 |
 |------|------|
 | CONNECT 挂了 | `ensure.sh` / 重启 gost（或 `PROXY_BACKEND=python` 兜底）；确认只绑回环 + auth |
-| **隧道假活** 或 API down | **杀掉**该 named tunnel 的 cloudflared 进程，让保活包装拉起；等 API 变 `healthy` 且 connections≥1；**不要**只 `ensure` 看本地 ha（假活时 ha 仍可能 ≥1） |
+| **隧道假活** 或 API down | 只杀该 `CFG` 的 cloudflared：`SIGTERM` → 约 2s 仍活则 `SIGKILL` → 有 `UP_CMD` 则拉起 → **轮询等到** connectors≥1（再 e2e 204）；**不要**只 ensure 看本地 ha（假活时 ha 仍可能 ≥1）；info 不可读时不要当 zombie 乱杀 |
 | edge / fake-ip | 重跑 edge pin（DoH→hosts）；确认未再解析到 `198.18.0.0/15` |
 | Access token 过期 | 重新 OTP；更新 token 文件后重启 access tcp |
 | access 仍 bad handshake 且隧道已 healthy | 查 Clash 是否劫持 cloudflared（**先看 `lsof` 是否 `fdfe:dcba`→`2606:4700`**）；补 IPv6 `route-exclude-address`；临时关 TUN 复测；确认 DIRECT 规则 |
@@ -573,12 +575,13 @@ CFG=$HOME/.cloudflared/<tunnel>.yml \
 ROLE=host \
 bash "<本 skill 目录>/scripts/doctor.sh"
 # 在你的电脑上诊断时改 ROLE=client（跳过翻墙机器专属层，避免误报 status=down）
+# ROLE=client 时 cf 为 soft（无 API 凭证误报不得当 hard down）；假活自愈只在翻墙机器 ROLE=host
 # ROLE 省略时行为与旧版相同（auto），跨机器误读仍可能出现
 ```
 
 输出：`status=OK|degraded|down` 与各层 `RESULT <键>=OK|FAIL|SKIP`（键见上）；**仅 `status=OK` 时 exit 0**。对用户复述时用「你的电脑 / 翻墙机器」，不要说 Origin。
 
-层顺序与 RESULT 键：`access` → `cf` → `tunnel_ha` → `local_proxy` → `e2e` → `clash_ipv6`（Access JWT 可选 → CF connectors / 假活交叉验证 → 翻墙机器本地 `ha_connections` → 翻墙机器 CONNECT `generate_204` → 你的电脑若有 access tcp 再 e2e → macOS Clash TUN IPv6）。
+层顺序与 RESULT 键：`access` → `cf` → `tunnel_ha` → `local_proxy` → `e2e` → `clash_ipv6`（Access JWT 可选 → CF connectors / 假活交叉验证 → 翻墙机器本地 `ha_connections` → 翻墙机器 CONNECT `generate_204` → 你的电脑若有 access tcp 再 e2e → macOS Clash TUN IPv6）。`ROLE=client` 时 cf/tunnel_ha/local_proxy 为 soft；假活判定与强制重启只在翻墙机器 `ROLE=host`。
 
 任一步失败 → 走 I2；需要人工 OTP 时**停止自动修**并通知用户。更细的命令清单见 `scripts/diagnose-repair.md`。
 
@@ -630,7 +633,9 @@ else:
 
 - CONNECT：`templates/ensure.sh`；隧道：`templates/ensure-tunnel.sh`（设 `TUNNEL_ID`；可选 `PIN_CMD` / `UP_CMD`）——**不能**只信本地 `ha_connections`：  
   1. 本地 ha==0 → 重启 cloudflared  
-  2. 本地 ha≥1 但 CF connectors=0 → **强制重启**（假活）；只杀该 `CFG` 对应进程  
+  2. 本地 ha≥1 **且** CF connectors **可读**且 =0 → **强制重启**（假活）；`tunnel info` 不可读 ≠ connectors=0，**不动作**  
+  3. 杀进程：`SIGTERM` → ~2s → 仍活 `SIGKILL`；只杀该 `CFG`；UP_CMD 后轮询至 connectors≥1（`heal_ok` / `heal_timeout`）  
+- 翻墙机器 ensure-tunnel 间隔建议 **≤15s**（假活窗口尽量短）；见 `templates/monitor-tick.sh.example`（需 export `UP_CMD`）  
 - **勿**误杀同一主机上其它隧道  
 - 助手 routine **不能**取代翻墙机器上的 ensure（假活仍靠本地与 CF API 交叉验证）  
 - Clash：按 E8 单写 + API 门禁；固定 cloudflared DIRECT + 隧道/Access fake-ip-filter + CF **IPv4 与 IPv6** `tun.route-exclude-address`  
@@ -664,7 +669,7 @@ else:
    分角色：翻墙机器查 `local_proxy` / 隧道；你的电脑查 Access / access tcp / Clash。设 `ROLE=host` 或 `ROLE=client`（见 I3）。角色读错会出现假 FAIL。
 
 4. **什么是隧道假活（zombie）？**  
-   本地 `ha_connections≥1`，但 Cloudflare API/面板 `status=down` 或 `connections=[]`。只看本地会漏。处理：杀掉该 named tunnel 的 cloudflared，让保活拉起，等 API healthy（见 I2 / `ensure-tunnel.sh`）。
+   本地 `ha_connections≥1`，但 Cloudflare API/面板 `status=down` 或 `connections=[]`。只看本地会漏。`tunnel info` 失败 ≠ connectors=0。处理（翻墙机器）：TERM→KILL→UP_CMD→等到 connectors≥1，再 e2e 204（见 I2 / `ensure-tunnel.sh`）。
 
 5. **为什么预检前必须退出 Clash？**  
    TUN / fake-ip（`198.18.0.0/15`）会污染 DNS 与探测，导致 `RETRY_AFTER_QUIT_PROXY` 或误报 `STOP_NO_CF_REACH`。
@@ -708,7 +713,7 @@ else:
 - [ ] **已完成人工浏览器验证**：用户确认在已选该节点下能打开谷歌/仓库页（curl 204 不够当最终验收）  
 - [ ] **Monitor / 保活询问在** Clash 决策 +（若做了则配置且 API 门禁通过）+ 人工浏览器验证**之后**；未提前默认创建例程  
 - [ ] Setup 后已询问是否加 Monitor；已按 **J0** 检测环境再选 J1 路径（无 cron 可用）  
-- [ ] 保活含「假活」检测（本地 ha 与 Cloudflare 状态交叉验证）
+- [ ] 保活含「假活」检测（本地 ha 与 CF connectors **交叉**验证；info 不可读≠0；假活时 TERM→KILL 强制重启并等到 connectors≥1）
 - [ ] Setup 未触犯 F2 硬禁止（回环、随机密码、未把 proxy.auth / 密码写入 skill/聊天/site.env；未双写 Clash；未备份不改配置；未验证前不问 Monitor）  
 - [ ] Access **Session Duration 已引导设为 7 天**（或用户明确要求的更长≤约一个月）；已说明过期仍需重新 OTP；建议 Global ≥ Application  
 - [ ] 发布主机名约定为 `cf-tunnel-proxy.<domain>`（DNS/Access/`--hostname`/site.env 一致；鉴权文件名仍为 `proxy.auth`）  

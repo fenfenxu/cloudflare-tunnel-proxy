@@ -78,14 +78,20 @@ doctor_local_ha() {
 }
 
 doctor_cf_connectors() {
+  # Prints connector count (may be 0). Returns 1 if tunnel info unreadable
+  # (non-zero exit or missing NAME:/ID: header) — never print 0 on failure.
   local cfd tid info
   tid="${TUNNEL_ID:-}"
   [[ -n "${tid}" ]] || return 1
   cfd=$(doctor_find_cfd) || return 1
-  info=$("$cfd" tunnel info "$tid" 2>/dev/null || true)
+  if ! info=$("$cfd" tunnel info "$tid" 2>/dev/null); then
+    return 1
+  fi
+  if ! printf '%s\n' "$info" | grep -qE '^(NAME:|ID:)'; then
+    return 1
+  fi
   printf '%s\n' "$info" | awk 'BEGIN{c=0} /^[0-9a-f]{8}-[0-9a-f]{4}-/{c++} END{print c}'
 }
-
 doctor_jwt_exp() {
   # stdin: JWT; stdout: exp epoch or empty
   python3 - <<'PY' 2>/dev/null || true

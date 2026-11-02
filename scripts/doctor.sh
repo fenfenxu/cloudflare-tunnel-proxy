@@ -65,18 +65,21 @@ soft_cf=0
 case "${ROLE}" in
   client)
     # 你的电脑：CONNECT / 本地 ha 在翻墙机器；层内会 SKIP，仍标 soft 兜底
+    # 客户端常无 CF API 凭证：cf FAIL（含误报 connectors=0）不得打成 hard down
     soft_local=1
     soft_ha=1
+    soft_cf=1
     soft_e2e=0
     soft_access=0
     ;;
   host)
-    # 翻墙机器：客户端层 soft
+    # 翻墙机器：客户端层 soft；假活交叉验证 / cf 为 hard
     soft_access=1
     soft_e2e=1
     soft_clash=1
     soft_local=0
     soft_ha=0
+    soft_cf=0
     ;;
   auto|*)
     ;;

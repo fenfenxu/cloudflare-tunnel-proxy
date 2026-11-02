@@ -26,6 +26,10 @@ curl -fsS "http://127.0.0.1:<METRICS>/metrics" | awk '/^cloudflared_tunnel_ha_co
 
 **假活：** 本地 ha≥1 且 API `down`/空连接 → 杀掉该配置对应的 cloudflared，让 wrapper 拉起；再查 API 至 healthy。
 
+- **区分**：`tunnel info` 失败/无 `NAME:`/`ID:` 头 = **不可读**（勿当 connectors=0 / 勿当 zombie）；可读且 connectors=0 才是真 0。
+- **杀进程**：先 `SIGTERM`，约 2s 仍活再 `SIGKILL`；只杀该 `CFG` 的 cloudflared。
+- **修好标准**：CF connectors≥1 **且** 端到端 `generate_204`→204（不要只看本地 ha 回升）。
+
 ## 3. DNS / ingress
 
 - CNAME `cf-tunnel-proxy.<domain>` → `<TUNNEL_UUID>.cfargotunnel.com`（Proxied）
