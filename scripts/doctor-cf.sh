@@ -15,6 +15,7 @@ layer_cf() {
     doctor_result cf SKIP "cloudflared not found"
     return 0
   fi
+  # Empty = unreadable (doctor_cf_connectors returned 1); "0" = readable zero connectors.
   connectors=$(doctor_cf_connectors || true)
   if [[ -z "${connectors}" ]]; then
     doctor_result cf SKIP "tunnel info unreadable"

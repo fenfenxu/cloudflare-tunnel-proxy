@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Example tick for 翻墙机器 keepalive (~ every ≤15s).
+# Copy beside ensure.sh / ensure-tunnel.sh; customize UP_CMD for YOUR CFG only.
+# Do NOT hardcode another host's paths here.
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export SITE_ENV="${SITE_ENV:-$DIR/site.env}"
+
+# CONNECT proxy ensure
+"$DIR/ensure.sh" || true
+
+# Required for ensure-tunnel heal after zombie kill: start/respawn THIS tunnel's
+# cloudflared (the one using $CFG from site.env). Example shape only:
+#   export UP_CMD='nohup bash -c "while true; do cloudflared tunnel --config \"$CFG\" run; sleep 5; done" >/dev/null 2>&1 &'
+# Leave UP_CMD unset if a wrapper/systemd unit already respawns the process.
+: "${UP_CMD:=}"
+export UP_CMD
+
+"$DIR/ensure-tunnel.sh" || true
